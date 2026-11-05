@@ -17,7 +17,7 @@ android {
     defaultConfig {
         applicationId = "com.ndmha.ndmha"
         minSdk = 21
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 34
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -26,12 +26,6 @@ android {
         release {
             signingConfig = signingConfigs.getByName("debug")
         }
-    }
-}
-
-tasks.configureEach {
-    if (name.contains("AarMetadata", ignoreCase = true)) {
-        enabled = false
     }
 }
 
