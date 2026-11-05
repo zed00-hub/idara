@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -55,19 +54,30 @@ class BackupService {
     }
   }
 
-  /// Restores database from a selected JSON backup file
-  static Future<bool> restoreFromBackup() async {
+  /// Restores database from the latest saved backup file or provided file path
+  static Future<bool> restoreFromBackup([String? filePath]) async {
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['json'],
-      );
+      File? file;
+      if (filePath != null && filePath.isNotEmpty) {
+        file = File(filePath);
+      } else {
+        final tempDir = await getTemporaryDirectory();
+        final files = tempDir
+            .listSync()
+            .whereType<File>()
+            .where((f) => f.path.contains('nadmha_backup') && f.path.endsWith('.json'))
+            .toList();
 
-      if (result == null || result.files.isEmpty || result.files.single.path == null) {
+        if (files.isNotEmpty) {
+          files.sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+          file = files.first;
+        }
+      }
+
+      if (file == null || !await file.exists()) {
         return false;
       }
 
-      final file = File(result.files.single.path!);
       final content = await file.readAsString();
       final Map<String, dynamic> data = jsonDecode(content);
 
