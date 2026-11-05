@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite/sqflite.dart';
 
 class DBHelper {
   static const String _dbName = 'ndmha_store.db';
@@ -24,12 +24,6 @@ class DBHelper {
   }
 
   Future<Database> _initDatabase() async {
-    // Enable FFI on desktop platforms (Windows, Linux, macOS)
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      sqfliteFfiInit();
-      databaseFactory = databaseFactoryFfi;
-    }
-
     final String databasesPath = await getDatabasesPath();
     final String path = join(databasesPath, _dbName);
 
