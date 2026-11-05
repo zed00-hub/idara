@@ -21,19 +21,8 @@ subprojects {
 }
 
 subprojects {
-    afterEvaluate {
-        if (project.plugins.hasPlugin("com.android.library") || project.plugins.hasPlugin("com.android.application")) {
-            val android = project.extensions.findByName("android")
-            if (android != null) {
-                try {
-                    val method = android.javaClass.getMethod("compileSdkVersion", Int::class.javaPrimitiveType)
-                    method.invoke(android, 36)
-                } catch (_: Exception) {}
-            }
-        }
-    }
-    tasks.whenTaskAdded {
-        if (name.contains("AarMetadata")) {
+    tasks.configureEach {
+        if (name.contains("AarMetadata", ignoreCase = true)) {
             enabled = false
         }
     }
