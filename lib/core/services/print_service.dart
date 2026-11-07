@@ -216,6 +216,16 @@ class PrintService {
     await Share.share(text, subject: 'فاتورة ${invoice.invoiceNumber}');
   }
 
+  /// Share invoice PDF directly
+  static Future<void> shareInvoicePdf(Invoice invoice) async {
+    try {
+      final pdfData = await generateReceiptPdf(invoice);
+      await Printing.sharePdf(bytes: pdfData, filename: 'invoice_${invoice.invoiceNumber}.pdf');
+    } catch (_) {
+      await shareInvoiceViaWhatsApp(invoice);
+    }
+  }
+
   /// Share shortages list with supplier via WhatsApp
   static Future<void> shareShortagesList({
     required List<Map<String, dynamic>> shortages,

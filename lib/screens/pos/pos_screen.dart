@@ -8,6 +8,7 @@ import '../../models/cart_item.dart';
 import '../../models/product.dart';
 import '../../providers/inventory_provider.dart';
 import '../../providers/pos_provider.dart';
+import '../../core/services/audio_service.dart';
 import 'checkout_dialog.dart';
 
 class POSScreen extends StatefulWidget {
