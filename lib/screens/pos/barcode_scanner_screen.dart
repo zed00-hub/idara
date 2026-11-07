@@ -6,21 +6,32 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/audio_service.dart';
+import '../../core/utils/currency_formatter.dart';
+import '../../models/cart_item.dart';
 import '../../models/product.dart';
 import '../../providers/pos_provider.dart';
 
 class BarcodeScannerScreen extends StatefulWidget {
-  final bool isMultiScanInitial;
+  final bool isMultiBarcodeInitial;
+  final bool isPriceChecker;
 
   const BarcodeScannerScreen({
     super.key,
-    this.isMultiScanInitial = false,
+    this.isMultiBarcodeInitial = false,
+    this.isPriceChecker = false,
   });
 
-  static Future<Product?> open(BuildContext context, {bool isMultiScan = false}) async {
+  static Future<Product?> open(
+    BuildContext context, {
+    bool isMultiScan = false,
+    bool isPriceChecker = false,
+  }) async {
     return await Navigator.of(context).push<Product>(
       MaterialPageRoute(
-        builder: (_) => BarcodeScannerScreen(isMultiScanInitial: isMultiScan),
+        builder: (_) => BarcodeScannerScreen(
+          isMultiBarcodeInitial: isMultiScan,
+          isPriceChecker: isPriceChecker,
+        ),
       ),
     );
   }
@@ -37,14 +48,18 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
 
   bool _isTorchOn = false;
   bool _isFrontCamera = false;
-  late bool _isMultiScan;
-  int _scannedCount = 0;
-  String? _lastScannedText;
+  late bool _isMultiBarcodeMode; // true = scan all barcodes in frame, false = one by one
+  String? _lastScannedBanner;
   final TextEditingController _manualBarcodeCtrl = TextEditingController();
 
   bool _isStartingCamera = false;
+  bool _isHandlingDialog = false;
   bool _hasPermissionError = false;
   String? _errorMessage;
+  bool _isCartExpanded = false;
+
+  // Barcode debounce map to avoid scanning same barcode 30 times a second
+  final Map<String, int> _recentScans = {};
 
   MobileScannerController _createController() {
     return MobileScannerController(
@@ -53,6 +68,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       facing: CameraFacing.back,
       torchEnabled: false,
       returnImage: false,
+      useNewCameraSelector: true,
     );
   }
 
@@ -60,7 +76,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _isMultiScan = widget.isMultiScanInitial;
+    _isMultiBarcodeMode = widget.isMultiBarcodeInitial;
     _controller = _createController();
 
     _laserAnimController = AnimationController(
@@ -72,18 +88,17 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       CurvedAnimation(parent: _laserAnimController, curve: Curves.easeInOut),
     );
 
-    // Settle UI route transition before accessing hardware camera
+    // Give the UI transition time to settle before opening hardware camera
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _startCameraSafely();
     });
   }
 
-  Future<void> _startCameraSafely() async {
+  Future<void> _startCameraSafely({bool forceRecreate = false}) async {
     if (_isStartingCamera || !mounted) return;
     _isStartingCamera = true;
 
     try {
-      // 1. Request/verify permission explicitly
       var status = await Permission.camera.status;
       if (!status.isGranted) {
         status = await Permission.camera.request();
@@ -99,11 +114,25 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         return;
       }
 
-      // Small delay after Android permission dialog to ensure window focus
+      if (forceRecreate) {
+        try {
+          await _controller.stop();
+        } catch (_) {}
+        try {
+          await _controller.dispose();
+        } catch (_) {}
+        if (!mounted) return;
+        setState(() {
+          _controller = _createController();
+        });
+      }
+
       await Future.delayed(const Duration(milliseconds: 250));
       if (!mounted) return;
 
-      await _controller.start();
+      if (!_controller.value.isRunning) {
+        await _controller.start();
+      }
 
       if (mounted) {
         setState(() {
@@ -114,7 +143,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = 'تعذر بدء الكاميرا المباشرة: $e';
+          _errorMessage = 'تعذر تشغيل الكاميرا المباشرة: $e';
         });
       }
     } finally {
@@ -142,54 +171,333 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     super.dispose();
   }
 
-  void _onDetect(BarcodeCapture capture) async {
-    final barcodes = capture.barcodes;
-    final pos = Provider.of<POSProvider>(context, listen: false);
+  /// Processes a single detected barcode string
+  Future<void> _processBarcode(String rawCode) async {
+    final code = rawCode.trim();
+    if (code.isEmpty || _isHandlingDialog || !mounted) return;
 
-    for (final barcode in barcodes) {
-      final code = barcode.rawValue?.trim();
-      if (code != null && code.isNotEmpty) {
-        final product = await pos.handleBarcodeScanned(code);
-        if (product != null && mounted) {
-          setState(() {
-            _scannedCount++;
-            _lastScannedText = '${product.name} • ${product.retailPrice.round()} دج';
-          });
-
-          AudioService.playScanBeep();
-
-          if (!_isMultiScan) {
-            // Single scan mode: Return immediately to POS with the scanned product
-            await Future.delayed(const Duration(milliseconds: 300));
-            if (mounted) {
-              Navigator.of(context).pop(product);
-            }
-            return;
-          }
-        }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (_recentScans.containsKey(code)) {
+      final diff = now - _recentScans[code]!;
+      if (diff < (_isMultiBarcodeMode ? 1200 : 1600)) {
+        return;
       }
     }
+    _recentScans[code] = now;
+
+    final pos = Provider.of<POSProvider>(context, listen: false);
+    final product = await pos.getProductByBarcode(code);
+
+    if (widget.isPriceChecker) {
+      if (product != null && mounted) {
+        AudioService.playScanBeep();
+        Navigator.of(context).pop(product);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚠️ السلعة غير مسجلة في الكتالوج'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+
+    if (product != null) {
+      if (product.retailPrice > 0) {
+        // Product exists and has price: Add directly to cart
+        pos.addToCart(product);
+        AudioService.playScanBeep();
+        if (mounted) {
+          setState(() {
+            _lastScannedBanner = '${product.name} • ${product.retailPrice.round()} دج';
+          });
+        }
+      } else {
+        // Product exists in 42k catalog, but retail price is 0 DZD: prompt to set price
+        await _showSetPriceDialog(product);
+      }
+    } else {
+      // Product not found in catalog: prompt to create new product
+      await _showAddNewProductDialog(code);
+    }
+  }
+
+  void _onDetect(BarcodeCapture capture) async {
+    if (_isHandlingDialog) return;
+
+    final barcodes = capture.barcodes;
+    if (barcodes.isEmpty) return;
+
+    if (_isMultiBarcodeMode) {
+      // Multi-barcode in frame: Process all distinct barcodes visible in this frame
+      final Set<String> distinctCodes = {};
+      for (final b in barcodes) {
+        final val = b.rawValue?.trim();
+        if (val != null && val.isNotEmpty) {
+          distinctCodes.add(val);
+        }
+      }
+
+      for (final code in distinctCodes) {
+        if (_isHandlingDialog || !mounted) break;
+        await _processBarcode(code);
+      }
+    } else {
+      // Single-item scan mode: Process first valid barcode in the reticle
+      final firstCode = barcodes.first.rawValue?.trim();
+      if (firstCode != null && firstCode.isNotEmpty) {
+        await _processBarcode(firstCode);
+      }
+    }
+  }
+
+  /// Dialog to set price when product exists but has 0 DZD price
+  Future<void> _showSetPriceDialog(Product product) async {
+    _isHandlingDialog = true;
+    final retailCtrl = TextEditingController();
+    final wholesaleCtrl = TextEditingController();
+    final pos = Provider.of<POSProvider>(context, listen: false);
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.retailColor.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.price_change_outlined, color: AppColors.retailColor, size: 22),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text('تحديد سعر البيع', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, size: 16, color: Colors.grey),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${product.name}\nالباركود: ${product.barcode}',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: retailCtrl,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'سعر البيع للتجزئة (دج) *',
+                prefixIcon: Icon(Icons.payments, color: AppColors.retailColor),
+                hintText: 'مثال: 150',
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: wholesaleCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'سعر الجملة (دج) - اختياري',
+                prefixIcon: Icon(Icons.storefront, color: AppColors.wholesaleColor),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('تخطي وعدم الإضافة'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primaryIndigo,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            ),
+            onPressed: () async {
+              final retail = double.tryParse(retailCtrl.text.trim()) ?? 0.0;
+              if (retail <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('⚠️ يرجى إدخال سعر بيع صحيح أكبر من 0 دج'),
+                    backgroundColor: AppColors.danger,
+                  ),
+                );
+                return;
+              }
+
+              final wholesale = double.tryParse(wholesaleCtrl.text.trim()) ?? retail;
+              final updatedProduct = product.copyWith(
+                retailPrice: retail,
+                wholesalePrice: wholesale,
+              );
+
+              await pos.saveProductAndAddToCart(product: updatedProduct);
+
+              if (mounted) {
+                setState(() {
+                  _lastScannedBanner = '${updatedProduct.name} • ${updatedProduct.retailPrice.round()} دج';
+                });
+                Navigator.of(ctx).pop();
+              }
+            },
+            child: const Text('حفظ السعر وإضافة للسلة ➔', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    _isHandlingDialog = false;
+  }
+
+  /// Dialog to register new product when barcode is not found in database
+  Future<void> _showAddNewProductDialog(String barcode) async {
+    _isHandlingDialog = true;
+    final nameCtrl = TextEditingController();
+    final retailCtrl = TextEditingController();
+    final costCtrl = TextEditingController();
+    final pos = Provider.of<POSProvider>(context, listen: false);
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.accent.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.add_shopping_cart, color: AppColors.accent, size: 22),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text('سلعة جديدة غير مسجلة', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('الباركود الممسوح: $barcode', style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: nameCtrl,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'اسم السلعة *',
+                  hintText: 'مثال: بسكويت بيمبو شيكولا',
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: retailCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'سعر البيع (دج) *',
+                  prefixIcon: Icon(Icons.payments, color: AppColors.retailColor),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: costCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'سعر الشراء / التكلفة (اختياري)',
+                  prefixIcon: Icon(Icons.money_off, color: Colors.grey),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.accent,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            ),
+            onPressed: () async {
+              final name = nameCtrl.text.trim();
+              final retail = double.tryParse(retailCtrl.text.trim()) ?? 0.0;
+              final cost = double.tryParse(costCtrl.text.trim()) ?? 0.0;
+
+              if (name.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('⚠️ يرجى إدخال اسم السلعة')),
+                );
+                return;
+              }
+
+              if (retail <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('⚠️ يرجى إدخال سعر بيع صحيح أكبر من 0 دج')),
+                );
+                return;
+              }
+
+              final newProduct = Product(
+                barcode: barcode,
+                name: name,
+                costPrice: cost,
+                retailPrice: retail,
+                wholesalePrice: retail,
+                quantity: 100.0,
+                isCustom: true,
+              );
+
+              await pos.saveProductAndAddToCart(product: newProduct);
+
+              if (mounted) {
+                setState(() {
+                  _lastScannedBanner = '$name • ${retail.round()} دج';
+                });
+                Navigator.of(ctx).pop();
+              }
+            },
+            child: const Text('حفظ وإضافة للسلة ➔', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    _isHandlingDialog = false;
   }
 
   void _onManualSubmit() async {
     final code = _manualBarcodeCtrl.text.trim();
     if (code.isEmpty) return;
-
-    final pos = Provider.of<POSProvider>(context, listen: false);
-    final product = await pos.handleBarcodeScanned(code);
     _manualBarcodeCtrl.clear();
-
-    if (product != null && mounted) {
-      setState(() {
-        _scannedCount++;
-        _lastScannedText = '${product.name} • ${product.retailPrice.round()} دج';
-      });
-      AudioService.playScanBeep();
-
-      if (!_isMultiScan) {
-        Navigator.of(context).pop(product);
-      }
-    }
+    await _processBarcode(code);
   }
 
   void _scanFromSystemCamera() async {
@@ -223,12 +531,15 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
 
   @override
   Widget build(BuildContext context) {
+    final pos = Provider.of<POSProvider>(context);
+    final cart = pos.cart;
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Fullscreen Live Camera View
+          // 1. Fullscreen Live Camera View
           MobileScanner(
             controller: _controller,
             onDetect: _onDetect,
@@ -243,7 +554,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                       const SizedBox(height: 14),
                       Text(
                         'تعذر بدء الكاميرا المباشرة (${error.errorCode.name})\n'
-                        '${error.errorDetails?.message ?? "قد تكون الكاميرا مقفلة بواسطة النظام أو بحاجة لإذن"}',
+                        '${error.errorDetails?.message ?? "يرجى التأكد من منح إذن الكاميرا للهاتف"}',
                         style: const TextStyle(color: Colors.white, fontSize: 13),
                         textAlign: TextAlign.center,
                       ),
@@ -254,7 +565,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                         runSpacing: 10,
                         children: [
                           ElevatedButton.icon(
-                            onPressed: () => _startCameraSafely(),
+                            onPressed: () => _startCameraSafely(forceRecreate: true),
                             icon: const Icon(Icons.refresh),
                             label: const Text('إعادة المحاولة'),
                           ),
@@ -282,20 +593,20 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
             },
           ),
 
-          // High-Tech Animated Viewfinder Frame
+          // 2. High-Tech Animated Viewfinder Frame
           Center(
             child: Container(
               width: 290,
               height: 180,
               decoration: BoxDecoration(
                 border: Border.all(
-                  color: _isMultiScan ? AppColors.accent : Colors.white,
+                  color: _isMultiBarcodeMode ? AppColors.accent : Colors.white,
                   width: 2.5,
                 ),
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: (_isMultiScan ? AppColors.accent : AppColors.primaryIndigo).withOpacity(0.4),
+                    color: (_isMultiBarcodeMode ? AppColors.accent : AppColors.primaryIndigo).withOpacity(0.4),
                     blurRadius: 20,
                     spreadRadius: 2,
                   ),
@@ -315,13 +626,13 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                           gradient: LinearGradient(
                             colors: [
                               Colors.transparent,
-                              _isMultiScan ? AppColors.accent : const Color(0xFFEF4444),
+                              _isMultiBarcodeMode ? AppColors.accent : const Color(0xFFEF4444),
                               Colors.transparent,
                             ],
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: (_isMultiScan ? AppColors.accent : Colors.red).withOpacity(0.9),
+                              color: (_isMultiBarcodeMode ? AppColors.accent : Colors.red).withOpacity(0.9),
                               blurRadius: 8,
                               spreadRadius: 2,
                             ),
@@ -335,36 +646,40 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
             ),
           ),
 
-          // Viewfinder Aim Text
+          // 3. Viewfinder Aim Indicator Text
           Positioned(
-            top: MediaQuery.of(context).size.height * 0.23,
+            top: MediaQuery.of(context).size.height * 0.14,
             left: 20,
             right: 20,
             child: Center(
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.6),
+                  color: Colors.black.withOpacity(0.65),
                   borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white12),
                 ),
                 child: Text(
-                  _isMultiScan ? 'وضع المسح المستمر ⚡ (مرر السلع تباعاً)' : 'وجه الكاميرا نحو باركود السلعة 🎯',
-                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                  _isMultiBarcodeMode
+                      ? 'وضع المسح الجماعي ⚡ (يلتقط كل الباركودات الظاهرة بالفرايم)'
+                      : 'وضع المسح الفردي 🎯 (مرر السلع سلعة بسلعة تباعاً)',
+                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
                 ),
               ),
             ),
           ),
 
-          // Top App Bar Controls
+          // 4. Top App Bar Controls
           SafeArea(
             child: Align(
               alignment: Alignment.topCenter,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // Close button
+                    // Close button -> Returns to POS
                     IconButton(
                       icon: Container(
                         padding: const EdgeInsets.all(8),
@@ -377,32 +692,33 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                       onPressed: () => Navigator.of(context).pop(),
                     ),
 
-                    // Single / Multi Scan Toggle
+                    // Mode Toggle: Single Item vs Multi-Barcode in frame
                     InkWell(
-                      onTap: () => setState(() => _isMultiScan = !_isMultiScan),
+                      onTap: () => setState(() => _isMultiBarcodeMode = !_isMultiBarcodeMode),
                       borderRadius: BorderRadius.circular(20),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.65),
+                          color: Colors.black.withOpacity(0.7),
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
-                            color: _isMultiScan ? AppColors.accent : Colors.white24,
-                            width: 1.2,
+                            color: _isMultiBarcodeMode ? AppColors.accent : AppColors.primaryIndigo,
+                            width: 1.5,
                           ),
                         ),
                         child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
-                              _isMultiScan ? Icons.bolt : Icons.filter_center_focus,
-                              color: _isMultiScan ? AppColors.accent : Colors.white,
+                              _isMultiBarcodeMode ? Icons.view_comfortable : Icons.crop_free,
+                              color: _isMultiBarcodeMode ? AppColors.accent : Colors.white,
                               size: 16,
                             ),
                             const SizedBox(width: 6),
                             Text(
-                              _isMultiScan ? 'مسح مستمر ⚡' : 'مسح أحادي 🎯',
+                              _isMultiBarcodeMode ? 'مسح جماعي ⚡' : 'مسح فردي 🎯',
                               style: TextStyle(
-                                color: _isMultiScan ? AppColors.accent : Colors.white,
+                                color: _isMultiBarcodeMode ? AppColors.accent : Colors.white,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 12,
                               ),
@@ -412,8 +728,9 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                       ),
                     ),
 
-                    // Flashlight & Camera Flip
+                    // Controls: Torch, Flip, System Camera
                     Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(
                           icon: Container(
@@ -425,7 +742,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                             child: Icon(
                               _isTorchOn ? Icons.flash_on : Icons.flash_off,
                               color: _isTorchOn ? Colors.amber : Colors.white,
-                              size: 20,
+                              size: 18,
                             ),
                           ),
                           onPressed: () async {
@@ -440,7 +757,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                               color: Colors.black.withOpacity(0.55),
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(Icons.flip_camera_android, color: Colors.white, size: 20),
+                            child: const Icon(Icons.flip_camera_android, color: Colors.white, size: 18),
                           ),
                           onPressed: () async {
                             await _controller.switchCamera();
@@ -454,7 +771,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                               color: Colors.black.withOpacity(0.55),
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(Icons.photo_camera, color: AppColors.accent, size: 20),
+                            child: const Icon(Icons.photo_camera, color: AppColors.accent, size: 18),
                           ),
                           tooltip: 'التقاط صورة بكاميرا النظام',
                           onPressed: _scanFromSystemCamera,
@@ -467,71 +784,229 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
             ),
           ),
 
-          // Floating Last Scanned Product Confirmation Banner
-          if (_lastScannedText != null)
+          // 5. Floating Flash Confirmation Banner
+          if (_lastScannedBanner != null)
             Positioned(
-              top: MediaQuery.of(context).size.height * 0.62,
+              top: MediaQuery.of(context).size.height * 0.52,
               left: 20,
               right: 20,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: AppColors.accentDark.withOpacity(0.95),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: const [
-                    BoxShadow(color: Colors.black45, blurRadius: 12, offset: Offset(0, 4)),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.check_circle, color: Colors.white, size: 24),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Text('✅ تمت الإضافة للسلة:', style: TextStyle(color: Colors.white70, fontSize: 11)),
-                          Text(
-                            _lastScannedText!,
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.accentDark.withOpacity(0.92),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black45, blurRadius: 10, offset: Offset(0, 3)),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.check_circle, color: Colors.white, size: 18),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          _lastScannedBanner!,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
 
-          // Bottom Bar: Manual Barcode Entry + Done Button
+          // 6. LIVE SCANNED CART PANEL (ما تم إضافته لايف)
           SafeArea(
             child: Align(
               alignment: Alignment.bottomCenter,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // Live Cart Box
+                    Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F172A).withOpacity(0.92),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white24, width: 1.2),
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black54, blurRadius: 16, offset: Offset(0, 4)),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Header: Total & Scanned items count
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(Icons.shopping_cart, color: AppColors.accent, size: 18),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'السلة المباشرة (${pos.totalItemsCount} سلع)',
+                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                    ),
+                                  ],
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.accent.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: AppColors.accent, width: 1),
+                                  ),
+                                  child: Text(
+                                    'الإجمالي: ${CurrencyFormatter.format(pos.netTotal)}',
+                                    style: const TextStyle(
+                                      color: AppColors.accent,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // Live Scanned Items List (horizontal mini list)
+                          if (cart.isNotEmpty)
+                            Container(
+                              height: 64,
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: ListView.builder(
+                                scrollDirection: Axis.horizontal,
+                                padding: const EdgeInsets.symmetric(horizontal: 10),
+                                itemCount: cart.length,
+                                itemBuilder: (ctx, idx) {
+                                  final item = cart[cart.length - 1 - idx]; // newest first
+                                  final actualIdx = cart.length - 1 - idx;
+                                  return Container(
+                                    width: 170,
+                                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.08),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: Colors.white12),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Text(
+                                                item.product.name,
+                                                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                '${item.unitPrice.round()} دج',
+                                                style: const TextStyle(color: AppColors.accent, fontSize: 11, fontWeight: FontWeight.bold),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        // Quick - / + Quantity Adjuster
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            InkWell(
+                                              onTap: () => pos.updateQuantity(actualIdx, item.quantity - 1),
+                                              child: Container(
+                                                padding: const EdgeInsets.all(4),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.white12,
+                                                  borderRadius: BorderRadius.circular(6),
+                                                ),
+                                                child: const Icon(Icons.remove, color: Colors.white, size: 12),
+                                              ),
+                                            ),
+                                            Padding(
+                                              padding: const EdgeInsets.symmetric(horizontal: 5),
+                                              child: Text(
+                                                '${item.quantity.toInt()}',
+                                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                                              ),
+                                            ),
+                                            InkWell(
+                                              onTap: () => pos.updateQuantity(actualIdx, item.quantity + 1),
+                                              child: Container(
+                                                padding: const EdgeInsets.all(4),
+                                                decoration: BoxDecoration(
+                                                  color: AppColors.primaryIndigo,
+                                                  borderRadius: BorderRadius.circular(6),
+                                                ),
+                                                child: const Icon(Icons.add, color: Colors.white, size: 12),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+
+                          // Checkout & Finish Button
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: () => Navigator.of(context).pop(),
+                                icon: const Icon(Icons.check_circle_outline, size: 18),
+                                label: Text(
+                                  cart.isEmpty
+                                      ? 'إنهاء والعودة للكاشير ➔'
+                                      : 'متابعة الدفع في الكاشير ➔ (${CurrencyFormatter.format(pos.netTotal)})',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: cart.isEmpty ? Colors.white24 : AppColors.accent,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+
                     // Manual Barcode Input Bar
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.75),
-                        borderRadius: BorderRadius.circular(16),
+                        color: Colors.black.withOpacity(0.8),
+                        borderRadius: BorderRadius.circular(14),
                         border: Border.all(color: Colors.white24),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.keyboard, color: Colors.white70, size: 20),
-                          const SizedBox(width: 10),
+                          const Icon(Icons.keyboard, color: Colors.white70, size: 18),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: TextField(
                               controller: _manualBarcodeCtrl,
                               keyboardType: TextInputType.number,
-                              style: const TextStyle(color: Colors.white, fontSize: 14),
+                              style: const TextStyle(color: Colors.white, fontSize: 13),
                               decoration: const InputDecoration(
                                 hintText: 'أو اكتب أرقام الباركود يدوياً...',
                                 hintStyle: TextStyle(color: Colors.white38, fontSize: 12),
@@ -542,33 +1017,12 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                             ),
                           ),
                           IconButton(
-                            icon: const Icon(Icons.arrow_forward, color: AppColors.accent),
+                            icon: const Icon(Icons.arrow_forward, color: AppColors.accent, size: 20),
                             onPressed: _onManualSubmit,
                           ),
                         ],
                       ),
                     ),
-
-                    if (_isMultiScan) ...[
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.check, size: 20),
-                          label: Text(
-                            'تم إنهاء المسح (تم مسح $_scannedCount سلع) ➔',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.accent,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          ),
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),

@@ -59,6 +59,47 @@ class POSProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Fetches product from SQLite database without adding it to cart automatically
+  Future<Product?> getProductByBarcode(String rawBarcode) async {
+    final barcode = rawBarcode.trim();
+    if (barcode.isEmpty) return null;
+    final db = await DBHelper.instance.database;
+    final maps = await db.query(
+      'products',
+      where: 'barcode = ?',
+      whereArgs: [barcode],
+      limit: 1,
+    );
+    if (maps.isNotEmpty) {
+      return Product.fromMap(maps.first);
+    }
+    return null;
+  }
+
+  /// Inserts or updates a product in SQLite and adds it to the active cart
+  Future<Product> saveProductAndAddToCart({
+    required Product product,
+    double qty = 1.0,
+  }) async {
+    final db = await DBHelper.instance.database;
+    Product finalProduct = product;
+    if (product.id != null) {
+      await db.update(
+        'products',
+        product.toMap(),
+        where: 'id = ?',
+        whereArgs: [product.id],
+      );
+    } else {
+      final id = await db.insert('products', product.toMap());
+      finalProduct = product.copyWith(id: id);
+    }
+
+    addToCart(finalProduct, qty: qty);
+    AudioService.playScanBeep();
+    return finalProduct;
+  }
+
   /// Handles barcode scanned from camera
   Future<Product?> handleBarcodeScanned(String rawBarcode) async {
     final barcode = rawBarcode.trim();

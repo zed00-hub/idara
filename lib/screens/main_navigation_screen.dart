@@ -118,7 +118,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               subtitle: 'معرفة سعر التجزئة والجملة والمخزون المتبقي',
               onTap: () async {
                 Navigator.of(ctx).pop();
-                final product = await BarcodeScannerScreen.open(context, isMultiScan: false);
+                final product = await BarcodeScannerScreen.open(context, isPriceChecker: true);
                 if (product != null && mounted) {
                   _showPriceInfoDialog(product);
                 }
