@@ -6,6 +6,7 @@ import '../../core/services/print_service.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../models/cart_item.dart';
 import '../../models/invoice.dart';
+import '../../widgets/app_drawer.dart';
 
 class InvoiceHistoryScreen extends StatefulWidget {
   const InvoiceHistoryScreen({super.key});
@@ -69,6 +70,81 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
     return _invoices
         .where((inv) => inv.createdAt.startsWith(todayStr))
         .fold(0.0, (sum, inv) => sum + inv.paidAmount);
+  }
+
+  void _cancelInvoice(Invoice invoice) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: AppColors.danger),
+            SizedBox(width: 8),
+            Text('إلغاء واسترجاع الفاتورة'),
+          ],
+        ),
+        content: Text(
+          'هل أنت متأكد من إلغاء الفاتورة ${invoice.invoiceNumber}؟\n'
+          'سيتم إعادة السلع المبيعة للمخزون تلقائياً وخصم الدين في حال كانت آجلة.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('تراجع')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('تأكيد الإلغاء', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    final db = await DBHelper.instance.database;
+    await db.transaction((txn) async {
+      // 1. Return items to stock
+      for (var item in invoice.items) {
+        if (item.product.id != null) {
+          await txn.rawUpdate(
+            'UPDATE products SET quantity = quantity + ? WHERE id = ?',
+            [item.quantity, item.product.id],
+          );
+        }
+      }
+
+      // 2. If credit sale, deduct debt from customer
+      if (invoice.remainingDebt > 0 && invoice.customerId != null) {
+        await txn.rawUpdate(
+          'UPDATE customers SET current_debt = MAX(0.0, current_debt - ?) WHERE id = ?',
+          [invoice.remainingDebt, invoice.customerId],
+        );
+        await txn.insert('customer_transactions', {
+          'customer_id': invoice.customerId,
+          'type': 'credit_refund',
+          'amount': invoice.remainingDebt,
+          'previous_debt': 0,
+          'new_debt': 0,
+          'notes': 'إلغاء فاتورة ${invoice.invoiceNumber}',
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      }
+
+      // 3. Delete invoice items & invoice
+      await txn.delete('invoice_items', where: 'invoice_id = ?', whereArgs: [invoice.id]);
+      await txn.delete('invoices', where: 'id = ?', whereArgs: [invoice.id]);
+    });
+
+    if (mounted) {
+      Navigator.of(context).pop(); // Close sheet
+      await _loadInvoices();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ تم إلغاء الفاتورة وإرجاع السلع للمخزون بنجاح'),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   void _showInvoiceDetails(Invoice invoice) {
@@ -205,6 +281,16 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
                   ),
                 ],
               ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () => _cancelInvoice(invoice),
+                icon: const Icon(Icons.delete_sweep_outlined, color: AppColors.danger, size: 18),
+                label: const Text('إلغاء واسترجاع الفاتورة للمخزون', style: TextStyle(color: AppColors.danger)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AppColors.danger),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
             ],
           ),
         );
@@ -219,6 +305,7 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
     final filtered = _filteredInvoices;
 
     return Scaffold(
+      drawer: const AppDrawer(),
       appBar: AppBar(
         leading: Builder(
           builder: (ctx) => IconButton(

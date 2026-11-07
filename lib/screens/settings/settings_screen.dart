@@ -238,20 +238,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     }
                   },
                 ),
-                ListTile(
-                  leading: const Icon(Icons.table_chart_outlined, color: Colors.green),
-                  title: const Text('تصدير جرد السلع إلى Excel/CSV'),
-                  subtitle: const Text('ملف متوافق مع جداول Excel'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () async {
-                    final path = await BackupService.exportProductsCsv();
-                    if (path != null && mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('تم تصدير ملف السلع بنجاح ✓')),
-                      );
-                    }
-                  },
-                ),
               ],
             ),
           ),

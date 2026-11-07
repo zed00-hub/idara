@@ -63,7 +63,8 @@ class BarcodeScannerScreen extends StatefulWidget {
   State<BarcodeScannerScreen> createState() => _BarcodeScannerScreenState();
 }
 
-class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> with SingleTickerProviderStateMixin {
+class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late MobileScannerController _controller;
   late AnimationController _laserAnimController;
   late Animation<double> _laserAnimation;
@@ -75,30 +76,21 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> with Single
   String? _lastScannedText;
   final TextEditingController _manualBarcodeCtrl = TextEditingController();
 
+  MobileScannerController _createController() {
+    return MobileScannerController(
+      detectionSpeed: DetectionSpeed.noDuplicates,
+      facing: CameraFacing.back,
+      torchEnabled: false,
+      returnImage: false,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _isMultiScan = widget.isMultiScanInitial;
-
-    _controller = MobileScannerController(
-      detectionSpeed: DetectionSpeed.normal,
-      detectionTimeoutMs: 400,
-      cameraResolution: const Size(1920, 1080),
-      facing: CameraFacing.back,
-      torchEnabled: false,
-      formats: const [
-        BarcodeFormat.ean13,
-        BarcodeFormat.ean8,
-        BarcodeFormat.upcA,
-        BarcodeFormat.upcE,
-        BarcodeFormat.code128,
-        BarcodeFormat.code39,
-        BarcodeFormat.code93,
-        BarcodeFormat.qrCode,
-        BarcodeFormat.itf,
-        BarcodeFormat.dataMatrix,
-      ],
-    );
+    _controller = _createController();
 
     _laserAnimController = AnimationController(
       vsync: this,
@@ -111,7 +103,24 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> with Single
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_controller.value.isInitialized) return;
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _controller.start();
+        break;
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+        _controller.stop();
+        break;
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _laserAnimController.dispose();
     _controller.dispose();
     _manualBarcodeCtrl.dispose();
@@ -189,18 +198,35 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> with Single
                       const Icon(Icons.camera_alt_outlined, color: Colors.amber, size: 54),
                       const SizedBox(height: 14),
                       Text(
-                        'تعذر تشغيل الكاميرا (${error.errorCode.name})\nيرجى التأكد من منح الإذن للكاميرا',
+                        'تعذر تشغيل الكاميرا (${error.errorCode.name})\n'
+                        'يرجى التأكد من إعطاء إذن الكاميرا للتطبيق.',
                         style: const TextStyle(color: Colors.white, fontSize: 14),
                         textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 16),
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          _controller.start();
-                          setState(() {});
-                        },
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('إعادة المحاولة'),
+                      const SizedBox(height: 18),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: () async {
+                              await _controller.stop();
+                              await _controller.start();
+                              if (mounted) setState(() {});
+                            },
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('إعادة المحاولة'),
+                          ),
+                          const SizedBox(width: 10),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              side: const BorderSide(color: Colors.white70),
+                            ),
+                            onPressed: () => openAppSettings(),
+                            icon: const Icon(Icons.settings),
+                            label: const Text('إعدادات الهاتف'),
+                          ),
+                        ],
                       ),
                     ],
                   ),

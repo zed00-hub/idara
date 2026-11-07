@@ -7,6 +7,7 @@ import '../../models/cart_item.dart';
 import '../../models/product.dart';
 import '../../providers/inventory_provider.dart';
 import '../../providers/pos_provider.dart';
+import '../../widgets/app_drawer.dart';
 import 'barcode_scanner_screen.dart';
 import 'checkout_dialog.dart';
 
@@ -274,6 +275,7 @@ class _POSScreenState extends State<POSScreen> {
     final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
+      drawer: const AppDrawer(),
       appBar: AppBar(
         leading: Builder(
           builder: (ctx) => IconButton(

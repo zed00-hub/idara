@@ -168,6 +168,31 @@ class FinancialReportProvider extends ChangeNotifier {
     }
   }
 
+  Future<bool> deleteExpense(int id) async {
+    final db = await DBHelper.instance.database;
+    try {
+      await db.delete('expenses', where: 'id = ?', whereArgs: [id]);
+      await loadExpenses();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<double> getMonthExpensesTotal({DateTime? month}) async {
+    final targetMonth = month ?? DateTime.now();
+    final monthStart = DateFormat('yyyy-MM-01 00:00:00').format(targetMonth);
+    final nextMonth = DateTime(targetMonth.year, targetMonth.month + 1, 1);
+    final monthEnd = DateFormat('yyyy-MM-dd 00:00:00').format(nextMonth);
+
+    final db = await DBHelper.instance.database;
+    final res = await db.rawQuery(
+      'SELECT SUM(amount) as total FROM expenses WHERE created_at >= ? AND created_at < ?',
+      [monthStart, monthEnd],
+    );
+    return (res.first['total'] as num?)?.toDouble() ?? 0.0;
+  }
+
   /// Generates the Daily Z-Report
   Future<ZReportSummary> generateDailyZReport({DateTime? date}) async {
     final targetDate = date ?? DateTime.now();

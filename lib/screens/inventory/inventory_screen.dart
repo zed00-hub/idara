@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
-import '../../core/services/backup_service.dart';
 import '../../core/services/print_service.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../models/product.dart';
 import '../../providers/app_settings_provider.dart';
 import '../../providers/inventory_provider.dart';
+import '../../widgets/app_drawer.dart';
 import '../settings/pin_lock_dialog.dart';
 import 'product_form_dialog.dart';
 
@@ -65,6 +65,46 @@ class _InventoryScreenState extends State<InventoryScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('✅ تمت إضافة السلعة بنجاح'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _onDeleteProduct(Product p) async {
+    if (p.id == null) return;
+    final settings = Provider.of<AppSettingsProvider>(context, listen: false);
+    if (settings.protectPrices) {
+      final allowed = await PinLockDialog.verify(
+        context,
+        title: 'أدخل PIN لحذف السلعة من المخزون',
+        isProtected: true,
+      );
+      if (!allowed) return;
+    }
+
+    if (!mounted) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('حذف السلعة'),
+        content: Text('هل أنت متأكد من حذف سلعة "${p.name}"؟'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('إلغاء')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('حذف', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      await Provider.of<InventoryProvider>(context, listen: false).deleteProduct(p.id!);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ تم حذف السلعة بنجاح'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -183,6 +223,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
     final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
+      drawer: const AppDrawer(),
       appBar: AppBar(
         leading: Builder(
           builder: (ctx) => IconButton(
@@ -216,21 +257,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
             icon: const Icon(Icons.warning_amber_outlined, color: AppColors.danger),
             tooltip: 'قائمة النواقص',
             onPressed: _showShortagesModal,
-          ),
-          IconButton(
-            icon: const Icon(Icons.file_download_outlined, color: AppColors.primaryIndigo),
-            tooltip: 'تصدير كملف Excel/CSV',
-            onPressed: () async {
-              final path = await BackupService.exportProductsCsv();
-              if (path != null && mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('✅ تم تصدير ملف جرد السلع بنجاح'),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              }
-            },
           ),
         ],
       ),
@@ -379,7 +405,38 @@ class _InventoryScreenState extends State<InventoryScreen> {
                                   ],
                                 ),
                               ),
-                              trailing: const Icon(Icons.edit_outlined, size: 18, color: Colors.grey),
+                              trailing: PopupMenuButton<String>(
+                                icon: const Icon(Icons.more_vert, size: 20, color: Colors.grey),
+                                onSelected: (action) {
+                                  if (action == 'edit') {
+                                    _onEditProduct(p);
+                                  } else if (action == 'delete') {
+                                    _onDeleteProduct(p);
+                                  }
+                                },
+                                itemBuilder: (ctx) => [
+                                  const PopupMenuItem(
+                                    value: 'edit',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.edit, size: 18, color: AppColors.primaryIndigo),
+                                        SizedBox(width: 8),
+                                        Text('تعديل السلعة'),
+                                      ],
+                                    ),
+                                  ),
+                                  const PopupMenuItem(
+                                    value: 'delete',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.delete_outline, size: 18, color: AppColors.danger),
+                                        SizedBox(width: 8),
+                                        Text('حذف السلعة', style: TextStyle(color: AppColors.danger)),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           );
                         },

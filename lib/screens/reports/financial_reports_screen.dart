@@ -98,6 +98,29 @@ class _FinancialReportsScreenState extends State<FinancialReportsScreen> {
     );
   }
 
+  void _onDeleteExpense(int id, String title) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('حذف المصروف'),
+        content: Text('هل أنت متأكد من حذف مصروف "$title"؟'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('إلغاء')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('حذف', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      await Provider.of<FinancialReportProvider>(context, listen: false).deleteExpense(id);
+      _loadData();
+    }
+  }
+
   void _showAddExpenseDialog() {
     final titleCtrl = TextEditingController();
     final amountCtrl = TextEditingController();
@@ -331,9 +354,21 @@ class _FinancialReportsScreenState extends State<FinancialReportsScreen> {
                             ),
                             title: Text(exp.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                             subtitle: Text(exp.category, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                            trailing: Text(
-                              '-${CurrencyFormatter.format(exp.amount)}',
-                              style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.danger, fontSize: 14),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '-${CurrencyFormatter.format(exp.amount)}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.danger, fontSize: 14),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, size: 18, color: Colors.grey),
+                                  tooltip: 'حذف المصروف',
+                                  onPressed: () {
+                                    if (exp.id != null) _onDeleteExpense(exp.id!, exp.title);
+                                  },
+                                ),
+                              ],
                             ),
                           ),
                         );

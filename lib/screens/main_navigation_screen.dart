@@ -2,18 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../core/constants/app_colors.dart';
-import '../core/services/backup_service.dart';
 import '../models/product.dart';
-import '../providers/app_settings_provider.dart';
 import '../providers/pos_provider.dart';
+import '../widgets/app_drawer.dart';
 import 'debts/customer_debts_screen.dart';
 import 'inventory/inventory_screen.dart';
 import 'invoices/invoice_history_screen.dart';
 import 'pos/barcode_scanner_screen.dart';
 import 'pos/pos_screen.dart';
-import 'reports/financial_reports_screen.dart';
-import 'settings/settings_screen.dart';
-import 'suppliers/suppliers_screen.dart';
 
 class MainNavigationScreen extends StatefulWidget {
   const MainNavigationScreen({super.key});
@@ -327,7 +323,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final settings = Provider.of<AppSettingsProvider>(context);
 
     return PopScope(
       canPop: false,
@@ -341,126 +336,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       child: Scaffold(
         key: _scaffoldKey,
         // Modern Navigation Drawer (القائمة الجانبية بالضغط على ☰)
-        drawer: Drawer(
-          backgroundColor: isDark ? AppColors.darkSurface : Colors.white,
-          child: Column(
-            children: [
-              // Drawer Header
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(20, 50, 20, 20),
-                decoration: const BoxDecoration(
-                  gradient: AppColors.primaryGradient,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: const Icon(Icons.storefront, color: Colors.white, size: 32),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      settings.storeName,
-                      style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      settings.storePhone.isNotEmpty ? settings.storePhone : 'نظام نقاط بيع أوفلاين 100%',
-                      style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Drawer Menu Items
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  children: [
-                    _buildDrawerItem(
-                      icon: Icons.analytics_outlined,
-                      color: AppColors.primaryIndigo,
-                      title: 'التقارير المالية و Z-Report',
-                      subtitle: 'أرباح اليوم، حركة الصندوق، والمصاريف',
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const FinancialReportsScreen()),
-                        );
-                      },
-                    ),
-                    _buildDrawerItem(
-                      icon: Icons.local_shipping_outlined,
-                      color: AppColors.wholesaleColor,
-                      title: 'الموردين وتصوير فواتير الشراء 📷',
-                      subtitle: 'حسابات الموردين وتصوير الوصل بالكاميرا',
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const SuppliersScreen()),
-                        );
-                      },
-                    ),
-                    _buildDrawerItem(
-                      icon: Icons.settings_outlined,
-                      color: AppColors.retailColor,
-                      title: 'إعدادات المحل والطباعة الحرارية',
-                      subtitle: 'ربط الطابعة الحرارية ESC/POS وترويسة الفاتورة',
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                        );
-                      },
-                    ),
-                    _buildDrawerItem(
-                      icon: Icons.cloud_download_outlined,
-                      color: AppColors.accentDark,
-                      title: 'النسخ الاحتياطي السريع (تصدير)',
-                      subtitle: 'حفظ نسخة أمان لبياناتك ومشاركتها في ثوانٍ',
-                      onTap: () async {
-                        Navigator.of(context).pop();
-                        final path = await BackupService.exportFullBackup();
-                        if (path != null && mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('✅ تم إنشاء النسخة الاحتياطية بنجاح'),
-                              backgroundColor: AppColors.success,
-                            ),
-                          );
-                        }
-                      },
-                    ),
-                    const Divider(height: 20),
-                    _buildDrawerItem(
-                      icon: settings.isDarkMode ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-                      color: Colors.amber,
-                      title: settings.isDarkMode ? 'تفعيل الوضع النهاري' : 'تفعيل الوضع الليلي',
-                      subtitle: 'تغيير مظهر وألوان التطبيق',
-                      onTap: () {
-                        settings.toggleTheme(!settings.isDarkMode);
-                      },
-                    ),
-                  ],
-                ),
-              ),
-
-              // Drawer Footer
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  'نظمها POS v1.1.0 • كتالوج 42,010 منتج مدمج',
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-                ),
-              ),
-            ],
-          ),
-        ),
+        drawer: const AppDrawer(),
 
         body: IndexedStack(
           index: _currentIndex,
@@ -565,30 +441,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildDrawerItem({
-    required IconData icon,
-    required Color color,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    return ListTile(
-      onTap: onTap,
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(icon, color: color, size: 22),
-      ),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-      subtitle: Text(subtitle, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-      trailing: const Icon(Icons.arrow_forward_ios, size: 12, color: Colors.grey),
     );
   }
 }

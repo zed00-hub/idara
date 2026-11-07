@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/database/db_helper.dart';
 import '../../models/product.dart';
 import '../../providers/inventory_provider.dart';
 
@@ -58,35 +59,74 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
   }
 
   void _scanBarcode() async {
-    final scannedCode = await showDialog<String>(
+    final scannedCode = await showModalBottomSheet<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('امسح الباركود'),
-        content: SizedBox(
-          width: 280,
-          height: 240,
-          child: MobileScanner(
-            onDetect: (capture) {
-              final barcodes = capture.barcodes;
-              if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
-                Navigator.of(ctx).pop(barcodes.first.rawValue!);
-              }
-            },
+      isScrollControlled: true,
+      backgroundColor: Colors.black,
+      builder: (ctx) => Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.close, color: Colors.white),
+            onPressed: () => Navigator.of(ctx).pop(),
           ),
+          title: const Text('امسح باركود السلعة', style: TextStyle(color: Colors.white)),
+        ),
+        body: MobileScanner(
+          controller: MobileScannerController(
+            detectionSpeed: DetectionSpeed.noDuplicates,
+            facing: CameraFacing.back,
+            torchEnabled: false,
+            returnImage: false,
+          ),
+          onDetect: (capture) {
+            final barcodes = capture.barcodes;
+            if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
+              final code = barcodes.first.rawValue!.trim();
+              if (code.isNotEmpty) {
+                Navigator.of(ctx).pop(code);
+              }
+            }
+          },
         ),
       ),
     );
 
-    if (scannedCode != null) {
+    if (scannedCode != null && mounted) {
       setState(() => _barcodeCtrl.text = scannedCode);
     }
   }
 
-  void _save() {
+  void _save() async {
     if (_formKey.currentState!.validate()) {
+      final barcode = _barcodeCtrl.text.trim();
+      final db = await DBHelper.instance.database;
+
+      // Prevent duplicate barcode
+      final existing = await db.query(
+        'products',
+        where: 'barcode = ? AND (id != ? OR ? IS NULL)',
+        whereArgs: [barcode, widget.product?.id ?? -1, widget.product?.id],
+        limit: 1,
+      );
+
+      if (existing.isNotEmpty && mounted) {
+        final existingName = existing.first['name'] as String;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('⚠️ هذا الباركود ($barcode) مسجل مسبقاً لسلعة: $existingName'),
+            backgroundColor: AppColors.danger,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
       final updatedProduct = Product(
         id: widget.product?.id,
-        barcode: _barcodeCtrl.text.trim(),
+        barcode: barcode,
         name: _nameCtrl.text.trim(),
         costPrice: double.tryParse(_costCtrl.text.trim()) ?? 0.0,
         retailPrice: double.tryParse(_retailCtrl.text.trim()) ?? 0.0,
@@ -97,7 +137,9 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
         isCustom: true,
       );
 
-      Navigator.of(context).pop(updatedProduct);
+      if (mounted) {
+        Navigator.of(context).pop(updatedProduct);
+      }
     }
   }
 

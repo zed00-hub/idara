@@ -5,6 +5,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../models/customer.dart';
 import '../../providers/customer_debt_provider.dart';
+import '../../widgets/app_drawer.dart';
 
 class CustomerDebtsScreen extends StatefulWidget {
   const CustomerDebtsScreen({super.key});
@@ -151,6 +152,77 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
     );
   }
 
+  void _editCustomerDialog(Customer customer) {
+    final nameCtrl = TextEditingController(text: customer.name);
+    final phoneCtrl = TextEditingController(text: customer.phone ?? '');
+    final notesCtrl = TextEditingController(text: customer.notes ?? '');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تعديل بيانات الزبون'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'اسم الزبون *')),
+            const SizedBox(height: 10),
+            TextField(controller: phoneCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'رقم الهاتف')),
+            const SizedBox(height: 10),
+            TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'ملاحظات')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('إلغاء')),
+          ElevatedButton(
+            onPressed: () async {
+              if (nameCtrl.text.trim().isEmpty) return;
+              final updated = customer.copyWith(
+                name: nameCtrl.text.trim(),
+                phone: phoneCtrl.text.trim(),
+                notes: notesCtrl.text.trim(),
+              );
+              await Provider.of<CustomerDebtProvider>(context, listen: false).updateCustomer(updated);
+              if (mounted) {
+                Navigator.of(ctx).pop();
+                Navigator.of(context).pop(); // close sheet
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('✅ تم تعديل بيانات الزبون بنجاح'), behavior: SnackBarBehavior.floating),
+                );
+              }
+            },
+            child: const Text('حفظ التعديلات'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteCustomerDialog(Customer customer) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('حذف الزبون'),
+        content: Text('هل أنت متأكد من حذف الزبون "${customer.name}" وكافة سجل دفعاته؟'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('إلغاء')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('حذف نهائياً', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      await Provider.of<CustomerDebtProvider>(context, listen: false).deleteCustomer(customer.id!);
+      Navigator.of(context).pop(); // close sheet
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('✅ تم حذف الزبون بنجاح'), behavior: SnackBarBehavior.floating),
+      );
+    }
+  }
+
   void _showStatementModal(Customer customer) async {
     final debtProv = Provider.of<CustomerDebtProvider>(context, listen: false);
     final history = await debtProv.getCustomerTransactions(customer.id!);
@@ -193,16 +265,30 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
                         Text(customer.phone!, style: const TextStyle(fontSize: 12, color: Colors.grey)),
                     ],
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: AppColors.creditColor.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      'الدين: ${CurrencyFormatter.format(customer.currentDebt)}',
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.creditColor, fontSize: 13),
-                    ),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppColors.creditColor.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          'الدين: ${CurrencyFormatter.format(customer.currentDebt)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.creditColor, fontSize: 13),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.edit_outlined, size: 20, color: AppColors.primaryIndigo),
+                        tooltip: 'تعديل بيانات الزبون',
+                        onPressed: () => _editCustomerDialog(customer),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 20, color: AppColors.danger),
+                        tooltip: 'حذف الزبون',
+                        onPressed: () => _deleteCustomerDialog(customer),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -287,6 +373,7 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
     final customers = debtProv.customers;
 
     return Scaffold(
+      drawer: const AppDrawer(),
       appBar: AppBar(
         leading: Builder(
           builder: (ctx) => IconButton(

@@ -78,6 +78,37 @@ class CustomerDebtProvider extends ChangeNotifier {
     }
   }
 
+  Future<bool> updateCustomer(Customer customer) async {
+    if (customer.id == null) return false;
+    final db = await DBHelper.instance.database;
+    try {
+      await db.update(
+        'customers',
+        customer.toMap(),
+        where: 'id = ?',
+        whereArgs: [customer.id],
+      );
+      await loadCustomers(query: _searchQuery);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> deleteCustomer(int customerId) async {
+    final db = await DBHelper.instance.database;
+    try {
+      await db.transaction((txn) async {
+        await txn.delete('customer_transactions', where: 'customer_id = ?', whereArgs: [customerId]);
+        await txn.delete('customers', where: 'id = ?', whereArgs: [customerId]);
+      });
+      await loadCustomers(query: _searchQuery);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   /// Records a debt payment made by customer
   Future<bool> recordPayment({
     required int customerId,
