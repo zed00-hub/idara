@@ -4,6 +4,8 @@ import '../core/database/db_helper.dart';
 import '../models/cash_register.dart';
 import '../models/expense.dart';
 
+enum PeriodFilter { today, thisMonth, allTime }
+
 class ZReportSummary {
   final String date;
   final int totalInvoices;
@@ -17,6 +19,7 @@ class ZReportSummary {
   final double openingCash;
   final double expectedDrawerCash;
   final double debtsCollected;
+  final double profitMarginPercent;
 
   ZReportSummary({
     required this.date,
@@ -31,6 +34,7 @@ class ZReportSummary {
     required this.openingCash,
     required this.expectedDrawerCash,
     required this.debtsCollected,
+    this.profitMarginPercent = 0.0,
   });
 }
 
@@ -195,18 +199,44 @@ class FinancialReportProvider extends ChangeNotifier {
 
   /// Generates the Daily Z-Report
   Future<ZReportSummary> generateDailyZReport({DateTime? date}) async {
-    final targetDate = date ?? DateTime.now();
-    final dayStr = DateFormat('yyyy-MM-dd').format(targetDate);
-    final dayStart = '$dayStr 00:00:00';
-    final dayEnd = '$dayStr 23:59:59';
+    return generateReport(period: PeriodFilter.today, date: date);
+  }
 
+  /// Generates Financial Report with Period Filter (Today, This Month, All Time)
+  Future<ZReportSummary> generateReport({
+    PeriodFilter period = PeriodFilter.today,
+    DateTime? date,
+  }) async {
+    final targetDate = date ?? DateTime.now();
     final db = await DBHelper.instance.database;
 
-    // 1. Invoices for the day
+    String? whereClause;
+    List<dynamic>? whereArgs;
+    String reportDateLabel;
+
+    if (period == PeriodFilter.today) {
+      final dayStr = DateFormat('yyyy-MM-dd').format(targetDate);
+      whereClause = 'created_at BETWEEN ? AND ?';
+      whereArgs = ['$dayStr 00:00:00', '$dayStr 23:59:59'];
+      reportDateLabel = dayStr;
+    } else if (period == PeriodFilter.thisMonth) {
+      final monthStart = '${DateFormat("yyyy-MM").format(targetDate)}-01 00:00:00';
+      final nextMonth = DateTime(targetDate.year, targetDate.month + 1, 1);
+      final monthEnd = '${DateFormat("yyyy-MM-dd").format(nextMonth)} 00:00:00';
+      whereClause = 'created_at >= ? AND created_at < ?';
+      whereArgs = [monthStart, monthEnd];
+      reportDateLabel = DateFormat('MMMM yyyy').format(targetDate);
+    } else {
+      whereClause = null;
+      whereArgs = null;
+      reportDateLabel = 'كافة الفترات (إجمالي)';
+    }
+
+    // 1. Invoices
     final invoices = await db.query(
       'invoices',
-      where: 'created_at BETWEEN ? AND ?',
-      whereArgs: [dayStart, dayEnd],
+      where: whereClause,
+      whereArgs: whereArgs,
     );
 
     double totalSales = 0.0;
@@ -227,12 +257,15 @@ class FinancialReportProvider extends ChangeNotifier {
     }
 
     // 2. Gross profit from items sold
-    final invoiceItems = await db.rawQuery('''
+    String itemsQuery = '''
       SELECT ii.quantity, ii.unit_price, ii.cost_price, ii.subtotal
       FROM invoice_items ii
       JOIN invoices i ON ii.invoice_id = i.id
-      WHERE i.created_at BETWEEN ? AND ?
-    ''', [dayStart, dayEnd]);
+    ''';
+    if (whereClause != null) {
+      itemsQuery += ' WHERE i.$whereClause';
+    }
+    final invoiceItems = await db.rawQuery(itemsQuery, whereArgs);
 
     double totalCost = 0.0;
     for (var item in invoiceItems) {
@@ -240,21 +273,25 @@ class FinancialReportProvider extends ChangeNotifier {
       final cost = (item['cost_price'] as num?)?.toDouble() ?? 0.0;
       totalCost += (qty * cost);
     }
-    final grossProfit = (totalSales - totalCost) > 0 ? (totalSales - totalCost) : 0.0;
+    final grossProfit = totalSales - totalCost;
 
-    // 3. Expenses for the day
+    // 3. Expenses
     final expMaps = await db.query(
       'expenses',
-      where: 'created_at BETWEEN ? AND ?',
-      whereArgs: [dayStart, dayEnd],
+      where: whereClause,
+      whereArgs: whereArgs,
     );
     double totalExpenses = expMaps.fold(0.0, (sum, e) => sum + ((e['amount'] as num?)?.toDouble() ?? 0.0));
 
-    // 4. Debts collected today
+    // 4. Debts collected
+    String debtQuery = "type = 'debt_payment'";
+    if (whereClause != null) {
+      debtQuery += ' AND $whereClause';
+    }
     final debtMaps = await db.query(
       'customer_transactions',
-      where: "type = 'debt_payment' AND created_at BETWEEN ? AND ?",
-      whereArgs: [dayStart, dayEnd],
+      where: debtQuery,
+      whereArgs: whereArgs,
     );
     double debtsCollected = debtMaps.fold(0.0, (sum, d) => sum + ((d['amount'] as num?)?.toDouble() ?? 0.0));
 
@@ -265,9 +302,10 @@ class FinancialReportProvider extends ChangeNotifier {
     final expectedDrawerCash = opening + cashSales + debtsCollected + cashIn - cashOut;
 
     final netProfit = grossProfit - totalExpenses;
+    final profitMarginPercent = totalSales > 0 ? (grossProfit / totalSales) * 100 : 0.0;
 
     return ZReportSummary(
-      date: dayStr,
+      date: reportDateLabel,
       totalInvoices: invoices.length,
       totalSales: totalSales,
       cashSales: cashSales,
@@ -279,6 +317,7 @@ class FinancialReportProvider extends ChangeNotifier {
       openingCash: opening,
       expectedDrawerCash: expectedDrawerCash,
       debtsCollected: debtsCollected,
+      profitMarginPercent: profitMarginPercent,
     );
   }
 }

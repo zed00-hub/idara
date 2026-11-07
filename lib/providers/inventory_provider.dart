@@ -141,6 +141,32 @@ class InventoryProvider extends ChangeNotifier {
     return maps.map((m) => Product.fromMap(m)).toList();
   }
 
+  /// Calculates total inventory capital cost, total retail value, and projected profit
+  Future<Map<String, double>> getInventoryValuation() async {
+    final db = await DBHelper.instance.database;
+    final res = await db.rawQuery('''
+      SELECT 
+        SUM(quantity * cost_price) as total_cost,
+        SUM(quantity * retail_price) as total_retail,
+        SUM(quantity) as total_stock
+      FROM products
+      WHERE quantity > 0
+    ''');
+    final totalCost = (res.first['total_cost'] as num?)?.toDouble() ?? 0.0;
+    final totalRetail = (res.first['total_retail'] as num?)?.toDouble() ?? 0.0;
+    final totalStock = (res.first['total_stock'] as num?)?.toDouble() ?? 0.0;
+    final potentialProfit = totalRetail - totalCost;
+    final potentialMargin = totalCost > 0 ? (potentialProfit / totalCost) * 100 : 0.0;
+
+    return {
+      'totalCost': totalCost,
+      'totalRetail': totalRetail,
+      'totalStock': totalStock,
+      'potentialProfit': potentialProfit,
+      'potentialMargin': potentialMargin,
+    };
+  }
+
   /// Quick stock adjustment
   Future<void> adjustStock(int productId, double newQuantity) async {
     final db = await DBHelper.instance.database;

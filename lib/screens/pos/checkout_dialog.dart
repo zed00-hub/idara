@@ -26,6 +26,7 @@ class CheckoutDialog extends StatefulWidget {
 class _CheckoutDialogState extends State<CheckoutDialog> {
   PaymentType _paymentType = PaymentType.cash;
   final TextEditingController _paidController = TextEditingController();
+  final TextEditingController _discountController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
   Customer? _selectedCustomer;
   double _customPaid = 0.0;
@@ -35,6 +36,7 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
     super.initState();
     final pos = Provider.of<POSProvider>(context, listen: false);
     _paidController.text = pos.netTotal.round().toString();
+    _discountController.text = pos.discount > 0 ? pos.discount.round().toString() : '';
     _customPaid = pos.netTotal;
     _selectedCustomer = pos.selectedCustomer;
 
@@ -46,6 +48,7 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
   @override
   void dispose() {
     _paidController.dispose();
+    _discountController.dispose();
     _notesController.dispose();
     super.dispose();
   }
@@ -59,6 +62,11 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
 
   void _confirmCheckout() async {
     final pos = Provider.of<POSProvider>(context, listen: false);
+
+    // Apply any discount entered
+    final disc = double.tryParse(_discountController.text.trim()) ?? 0.0;
+    pos.setDiscount(disc.clamp(0.0, pos.subtotal));
+
     final netTotal = pos.netTotal;
 
     if (_paymentType == PaymentType.credit || _paymentType == PaymentType.partial) {
@@ -98,8 +106,15 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
       paidAmount = 0.0;
       remainingDebt = netTotal;
     } else if (_paymentType == PaymentType.partial) {
+      if (paidAmount < 0) paidAmount = 0.0;
       if (paidAmount >= netTotal) {
         _paymentType = PaymentType.cash;
+        changeGiven = CurrencyFormatter.calculateRoundedChange(
+          totalDue: netTotal,
+          paidAmount: paidAmount,
+        ).toDouble();
+        paidAmount = netTotal;
+        remainingDebt = 0.0;
       } else {
         remainingDebt = netTotal - paidAmount;
       }
@@ -232,6 +247,65 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
               ),
               const SizedBox(height: 14),
 
+              // Subtotal & Discount row
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white.withOpacity(0.05) : Colors.grey.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('المجموع الفرعي:', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                          Text(
+                            CurrencyFormatter.format(pos.subtotal),
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: 140,
+                      child: TextField(
+                        controller: _discountController,
+                        keyboardType: TextInputType.number,
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.danger),
+                        decoration: InputDecoration(
+                          labelText: 'تخفيض (دج)',
+                          labelStyle: const TextStyle(fontSize: 12, color: AppColors.danger),
+                          prefixIcon: const Icon(Icons.discount_outlined, size: 16, color: AppColors.danger),
+                          hintText: '0',
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          filled: true,
+                          fillColor: AppColors.danger.withOpacity(0.08),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                        ),
+                        onChanged: (val) {
+                          final disc = double.tryParse(val.trim()) ?? 0.0;
+                          pos.setDiscount(disc.clamp(0.0, pos.subtotal));
+                          setState(() {
+                            if (_paymentType == PaymentType.cash) {
+                              _customPaid = pos.netTotal;
+                              _paidController.text = pos.netTotal.round().toString();
+                            } else if (_paymentType == PaymentType.partial) {
+                              _customPaid = (pos.netTotal / 2).roundToDouble();
+                              _paidController.text = _customPaid.round().toString();
+                            }
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+
               // Total banner
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -242,7 +316,7 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('المبلغ الإجمالي المستحق:', style: TextStyle(fontSize: 14, color: Colors.white70)),
+                    const Text('المبلغ الصافي المستحق:', style: TextStyle(fontSize: 14, color: Colors.white70)),
                     Text(
                       CurrencyFormatter.format(netTotal),
                       style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),

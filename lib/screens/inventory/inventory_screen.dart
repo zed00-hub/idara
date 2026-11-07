@@ -216,6 +216,157 @@ class _InventoryScreenState extends State<InventoryScreen> {
     );
   }
 
+  Future<void> _showValuationModal() async {
+    final inv = Provider.of<InventoryProvider>(context, listen: false);
+    final val = await inv.getInventoryValuation();
+    final totalCost = val['totalCost'] ?? 0.0;
+    final totalRetail = val['totalRetail'] ?? 0.0;
+    final projectedProfit = val['potentialProfit'] ?? 0.0;
+    final margin = val['potentialMargin'] ?? 0.0;
+    final totalUnits = (val['totalStock'] ?? 0.0).toInt();
+
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryIndigo.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.account_balance_wallet, color: AppColors.primaryIndigo),
+                      ),
+                      const SizedBox(width: 10),
+                      const Text(
+                        'تقييم رأس مال المخزون والأرباح',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildValuationStat(
+                      title: 'رأس المال المستثمر',
+                      subtitle: 'تكلفة الشراء الكلية',
+                      value: CurrencyFormatter.format(totalCost),
+                      color: AppColors.primaryIndigo,
+                      icon: Icons.monetization_on_outlined,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildValuationStat(
+                      title: 'القيمة البيعية الكلية',
+                      subtitle: 'سعر البيع الإجمالي',
+                      value: CurrencyFormatter.format(totalRetail),
+                      color: AppColors.accent,
+                      icon: Icons.storefront_outlined,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildValuationStat(
+                      title: 'الربح الإجمالي المتوقع',
+                      subtitle: 'نسبة الهامش: ${margin.toStringAsFixed(1)}%',
+                      value: CurrencyFormatter.format(projectedProfit),
+                      color: projectedProfit >= 0 ? const Color(0xFF10B981) : AppColors.danger,
+                      icon: Icons.trending_up,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildValuationStat(
+                      title: 'حجم المخزون الفعلي',
+                      subtitle: 'إجمالي القطع المتوفرة',
+                      value: '$totalUnits قطعة',
+                      color: const Color(0xFFF59E0B),
+                      icon: Icons.inventory,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildValuationStat({
+    required String title,
+    required String subtitle,
+    required String value,
+    required Color color,
+    required IconData icon,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: color),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final inv = Provider.of<InventoryProvider>(context);
@@ -253,6 +404,11 @@ class _InventoryScreenState extends State<InventoryScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.analytics_outlined, color: AppColors.primaryIndigo),
+            tooltip: 'تقييم رأس مال المخزون والأرباح',
+            onPressed: _showValuationModal,
+          ),
           IconButton(
             icon: const Icon(Icons.warning_amber_outlined, color: AppColors.danger),
             tooltip: 'قائمة النواقص',

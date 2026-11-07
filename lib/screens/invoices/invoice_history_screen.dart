@@ -112,21 +112,40 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
         }
       }
 
-      // 2. If credit sale, deduct debt from customer
+      // 2. If credit sale, deduct debt from customer with exact audit trail
       if (invoice.remainingDebt > 0 && invoice.customerId != null) {
-        await txn.rawUpdate(
-          'UPDATE customers SET current_debt = MAX(0.0, current_debt - ?) WHERE id = ?',
-          [invoice.remainingDebt, invoice.customerId],
-        );
-        await txn.insert('customer_transactions', {
-          'customer_id': invoice.customerId,
-          'type': 'credit_refund',
-          'amount': invoice.remainingDebt,
-          'previous_debt': 0,
-          'new_debt': 0,
-          'notes': 'إلغاء فاتورة ${invoice.invoiceNumber}',
-          'created_at': DateTime.now().toIso8601String(),
-        });
+        final custMaps = await txn.query('customers', where: 'id = ?', whereArgs: [invoice.customerId]);
+        if (custMaps.isNotEmpty) {
+          final prevDebt = (custMaps.first['current_debt'] as num?)?.toDouble() ?? 0.0;
+          final newDebt = (prevDebt - invoice.remainingDebt) > 0 ? (prevDebt - invoice.remainingDebt) : 0.0;
+          await txn.update(
+            'customers',
+            {'current_debt': newDebt},
+            where: 'id = ?',
+            whereArgs: [invoice.customerId],
+          );
+          await txn.insert('customer_transactions', {
+            'customer_id': invoice.customerId,
+            'type': 'credit_refund',
+            'amount': invoice.remainingDebt,
+            'previous_debt': prevDebt,
+            'new_debt': newDebt,
+            'notes': 'إلغاء فاتورة ${invoice.invoiceNumber}',
+            'created_at': DateTime.now().toIso8601String(),
+          });
+        }
+      }
+
+      // 3. If cash was collected, record Cash-Out refund in open cash register
+      if (invoice.paidAmount > 0) {
+        final openReg = await txn.query('cash_register', where: 'is_closed = 0', limit: 1);
+        if (openReg.isNotEmpty) {
+          final regId = openReg.first['id'] as int;
+          await txn.rawUpdate(
+            'UPDATE cash_register SET cash_out = cash_out + ? WHERE id = ?',
+            [invoice.paidAmount, regId],
+          );
+        }
       }
 
       // 3. Delete invoice items & invoice

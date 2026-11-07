@@ -15,8 +15,11 @@ class CurrencyFormatter {
   }
 
   /// Rounds change / remaining amounts to nearest 5 DZD (Algiers standard practice)
-  /// e.g. 13 -> 15, 12 -> 10, 11 -> 10, 14 -> 15
+  /// e.g. 13 -> 15, 12 -> 10, 11 -> 10, 14 -> 15, -13 -> -15
   static int roundTo5DZD(num amount) {
+    if (amount < 0) {
+      return -roundTo5DZD(-amount);
+    }
     final int val = amount.round();
     final int remainder = val % 5;
     if (remainder == 0) return val;

@@ -88,6 +88,18 @@ class SupplierProvider extends ChangeNotifier {
             [remaining, supplierId],
           );
         }
+
+        // If paid in cash immediately, record as Cash-Out in active register
+        if (paidAmount > 0) {
+          final openReg = await txn.query('cash_register', where: 'is_closed = 0', limit: 1);
+          if (openReg.isNotEmpty) {
+            final regId = openReg.first['id'] as int;
+            await txn.rawUpdate(
+              'UPDATE cash_register SET cash_out = cash_out + ? WHERE id = ?',
+              [paidAmount, regId],
+            );
+          }
+        }
       });
 
       await loadSuppliers();
@@ -111,12 +123,24 @@ class SupplierProvider extends ChangeNotifier {
     required int supplierId,
     required double amount,
   }) async {
+    if (amount <= 0) return false;
     final db = await DBHelper.instance.database;
     try {
-      await db.rawUpdate(
-        'UPDATE suppliers SET current_debt = CASE WHEN (current_debt - ?) > 0 THEN (current_debt - ?) ELSE 0 END WHERE id = ?',
-        [amount, amount, supplierId],
-      );
+      await db.transaction((txn) async {
+        await txn.rawUpdate(
+          'UPDATE suppliers SET current_debt = CASE WHEN (current_debt - ?) > 0 THEN (current_debt - ?) ELSE 0 END WHERE id = ?',
+          [amount, amount, supplierId],
+        );
+
+        final openReg = await txn.query('cash_register', where: 'is_closed = 0', limit: 1);
+        if (openReg.isNotEmpty) {
+          final regId = openReg.first['id'] as int;
+          await txn.rawUpdate(
+            'UPDATE cash_register SET cash_out = cash_out + ? WHERE id = ?',
+            [amount, regId],
+          );
+        }
+      });
       await loadSuppliers();
       return true;
     } catch (e) {

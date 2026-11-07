@@ -17,6 +17,7 @@ class _FinancialReportsScreenState extends State<FinancialReportsScreen> {
   ZReportSummary? _zReport;
   bool _isLoading = true;
   bool _isAuthenticated = false;
+  PeriodFilter _selectedPeriod = PeriodFilter.today;
 
   @override
   void initState() {
@@ -49,7 +50,7 @@ class _FinancialReportsScreenState extends State<FinancialReportsScreen> {
     final reportProv = Provider.of<FinancialReportProvider>(context, listen: false);
     await reportProv.loadCurrentRegister();
     await reportProv.loadExpenses();
-    final z = await reportProv.generateDailyZReport();
+    final z = await reportProv.generateReport(period: _selectedPeriod);
 
     if (mounted) {
       setState(() {
@@ -57,6 +58,37 @@ class _FinancialReportsScreenState extends State<FinancialReportsScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  Widget _buildPeriodTab(String label, PeriodFilter filter) {
+    final isSelected = _selectedPeriod == filter;
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () {
+          if (_selectedPeriod != filter) {
+            setState(() => _selectedPeriod = filter);
+            _loadData();
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected ? AppColors.primaryIndigo : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+              color: isSelected ? Colors.white : Colors.grey,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _showOpenRegisterDialog() {
@@ -196,6 +228,24 @@ class _FinancialReportsScreenState extends State<FinancialReportsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // Period Filter Tabs
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 14),
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.grey.withOpacity(0.15)),
+                    ),
+                    child: Row(
+                      children: [
+                        _buildPeriodTab('اليوم 📅', PeriodFilter.today),
+                        _buildPeriodTab('هذا الشهر 🗓️', PeriodFilter.thisMonth),
+                        _buildPeriodTab('الكل 🌐', PeriodFilter.allTime),
+                      ],
+                    ),
+                  ),
+
                   // Cash Register Status Card
                   Container(
                     padding: const EdgeInsets.all(16),

@@ -28,7 +28,8 @@ class POSProvider extends ChangeNotifier {
   }
 
   double get netTotal {
-    final net = subtotal - _discount;
+    final effectiveDiscount = _discount > subtotal ? subtotal : _discount;
+    final net = subtotal - effectiveDiscount;
     return net > 0 ? net : 0.0;
   }
 
@@ -212,11 +213,14 @@ class POSProvider extends ChangeNotifier {
     final dateStr = DateFormat('yyyyMMdd-HHmmss').format(DateTime.now());
     final invoiceNumber = 'INV-$dateStr';
 
+    final effectiveDiscount = _discount > subtotal ? subtotal : _discount;
+    final finalNetTotal = (subtotal - effectiveDiscount) > 0 ? (subtotal - effectiveDiscount) : 0.0;
+
     final invoice = Invoice(
       invoiceNumber: invoiceNumber,
       subtotal: subtotal,
-      discount: _discount,
-      totalAmount: netTotal,
+      discount: effectiveDiscount,
+      totalAmount: finalNetTotal,
       paymentType: paymentType,
       paidAmount: paidAmount,
       remainingDebt: remainingDebt,
