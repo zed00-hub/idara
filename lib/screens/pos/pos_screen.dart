@@ -179,71 +179,187 @@ class _POSScreenState extends State<POSScreen> {
     final qtyCtrl = TextEditingController(text: '1');
     final pos = Provider.of<POSProvider>(context, listen: false);
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
-          children: [
-            Icon(Icons.add_shopping_cart, color: AppColors.primaryIndigo),
-            SizedBox(width: 8),
-            Text('سلعة متفرقة / بدون باركود', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          ],
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameCtrl,
-              autofocus: true,
-              decoration: const InputDecoration(
-                labelText: 'اسم السلعة (خبز، خضر، ميزان...)',
-                prefixIcon: Icon(Icons.label_outline),
+        padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(color: Colors.grey.withOpacity(0.3), borderRadius: BorderRadius.circular(2)),
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: priceCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'السعر الإفرادي (دج) *',
-                prefixIcon: Icon(Icons.payments_outlined),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryIndigo.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.add_shopping_cart, color: AppColors.primaryIndigo, size: 24),
+                  ),
+                  const SizedBox(width: 12),
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('سلعة متفرقة / بدون باركود', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                      Text('إضافة سريعة لسلعة مباشرة للسلة', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                    ],
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: qtyCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'الكمية / الوزن',
-                prefixIcon: Icon(Icons.numbers_outlined),
+              const SizedBox(height: 18),
+              TextField(
+                controller: nameCtrl,
+                autofocus: true,
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                decoration: InputDecoration(
+                  labelText: 'اسم السلعة (خبز، خضر، ميزان...)',
+                  hintText: 'مثال: خبز تقليدي أو خضر',
+                  prefixIcon: const Icon(Icons.label_outline, color: AppColors.primaryIndigo),
+                  filled: true,
+                  fillColor: Colors.grey.withOpacity(0.06),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                ),
               ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('إلغاء')),
-          ElevatedButton(
-            onPressed: () {
-              final name = nameCtrl.text.trim().isEmpty ? 'سلعة متفرقة' : nameCtrl.text.trim();
-              final price = double.tryParse(priceCtrl.text.trim()) ?? 0.0;
-              final qty = double.tryParse(qtyCtrl.text.trim()) ?? 1.0;
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: TextField(
+                      controller: priceCtrl,
+                      keyboardType: TextInputType.number,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      decoration: InputDecoration(
+                        labelText: 'السعر الإفرادي (دج) *',
+                        hintText: 'مثال: 50',
+                        prefixIcon: const Icon(Icons.payments_outlined, color: AppColors.retailColor),
+                        filled: true,
+                        fillColor: Colors.grey.withOpacity(0.06),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: qtyCtrl,
+                      keyboardType: TextInputType.number,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      decoration: InputDecoration(
+                        labelText: 'الكمية',
+                        prefixIcon: const Icon(Icons.numbers_outlined),
+                        filled: true,
+                        fillColor: Colors.grey.withOpacity(0.06),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // أسعار سريعة شائعة
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  const Text('سعر سريع: ', style: TextStyle(fontSize: 12, color: Colors.grey, height: 2.2)),
+                  ActionChip(
+                    label: const Text('10 دج'),
+                    onPressed: () => priceCtrl.text = '10',
+                  ),
+                  ActionChip(
+                    label: const Text('20 دج'),
+                    onPressed: () => priceCtrl.text = '20',
+                  ),
+                  ActionChip(
+                    label: const Text('50 دج'),
+                    onPressed: () => priceCtrl.text = '50',
+                  ),
+                  ActionChip(
+                    label: const Text('100 دج'),
+                    onPressed: () => priceCtrl.text = '100',
+                  ),
+                  ActionChip(
+                    label: const Text('200 دج'),
+                    onPressed: () => priceCtrl.text = '200',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      ),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('إلغاء'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryIndigo,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      ),
+                      onPressed: () {
+                        final name = nameCtrl.text.trim().isEmpty ? 'سلعة متفرقة' : nameCtrl.text.trim();
+                        final price = double.tryParse(priceCtrl.text.trim()) ?? 0.0;
+                        final qty = double.tryParse(qtyCtrl.text.trim()) ?? 1.0;
 
-              final customProduct = Product(
-                barcode: 'CUSTOM-${DateTime.now().millisecondsSinceEpoch}',
-                name: name,
-                retailPrice: price,
-                wholesalePrice: price,
-                isCustom: true,
-              );
+                        if (price <= 0) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('⚠️ يرجى إدخال سعر صحيح أكبر من 0 دج'),
+                              backgroundColor: AppColors.danger,
+                            ),
+                          );
+                          return;
+                        }
 
-              pos.addToCart(customProduct, qty: qty);
-              AudioService.playScanBeep();
-              Navigator.of(ctx).pop();
-            },
-            child: const Text('إضافة للسلة'),
+                        final customProduct = Product(
+                          barcode: 'CUSTOM-${DateTime.now().millisecondsSinceEpoch}',
+                          name: name,
+                          retailPrice: price,
+                          wholesalePrice: price,
+                          isCustom: true,
+                        );
+
+                        pos.addToCart(customProduct, qty: qty);
+                        AudioService.playScanBeep();
+                        Navigator.of(ctx).pop();
+                      },
+                      icon: const Icon(Icons.check, size: 20),
+                      label: const Text('إضافة للسلة ➔', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
