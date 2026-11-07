@@ -23,11 +23,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
   DateTime? _lastBackPressTime;
 
-  final List<Widget> _screens = const [
-    POSScreen(),
-    InventoryScreen(),
-    InvoiceHistoryScreen(),
-    CustomerDebtsScreen(),
+  List<Widget> get _screens => [
+    POSScreen(isActive: _currentIndex == 0),
+    const InventoryScreen(),
+    const InvoiceHistoryScreen(),
+    const CustomerDebtsScreen(),
   ];
 
   final List<String> _titles = const [
@@ -36,6 +36,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     'سجل الفواتير والمبيعات',
     'ديون الزبائن (الكريدي)',
   ];
+
+  void _onCenterButtonPressed() {
+    if (_currentIndex != 0) {
+      setState(() => _currentIndex = 0);
+    } else {
+      _showCenterActionMenu();
+    }
+  }
 
   Future<bool> _onWillPop() async {
     if (_currentIndex != 0) {
@@ -361,7 +369,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             ],
           ),
           child: FloatingActionButton(
-            onPressed: _showCenterActionMenu,
+            onPressed: _onCenterButtonPressed,
             elevation: 0,
             backgroundColor: Colors.transparent,
             foregroundColor: Colors.white,

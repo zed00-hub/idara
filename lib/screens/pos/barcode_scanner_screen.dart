@@ -75,6 +75,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
 
   // Barcode debounce map to avoid scanning same barcode 30 times a second
   final Map<String, int> _recentScans = {};
+  List<Barcode> _lastDetectedBarcodes = [];
 
   MobileScannerController _createController() {
     return MobileScannerController(
@@ -250,31 +251,61 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
   }
 
   void _onDetect(BarcodeCapture capture) async {
+    _lastDetectedBarcodes = capture.barcodes;
     if (_isHandlingDialog) return;
 
     final barcodes = capture.barcodes;
     if (barcodes.isEmpty) return;
 
-    if (_isMultiBarcodeMode) {
-      // Multi-barcode in frame: Process all distinct barcodes visible in this frame
-      final Set<String> distinctCodes = {};
-      for (final b in barcodes) {
-        final val = b.rawValue?.trim();
-        if (val != null && val.isNotEmpty) {
-          distinctCodes.add(val);
-        }
-      }
-
-      for (final code in distinctCodes) {
-        if (_isHandlingDialog || !mounted) break;
-        await _processBarcode(code);
-      }
-    } else {
-      // Single-item scan mode: Process first valid barcode in the reticle
+    if (!_isMultiBarcodeMode) {
+      // Single-item scan mode: Process first valid barcode in continuous scan
       final firstCode = barcodes.first.rawValue?.trim();
       if (firstCode != null && firstCode.isNotEmpty) {
         await _processBarcode(firstCode);
       }
+    }
+  }
+
+  void _triggerMultiScanCapture() async {
+    if (_lastDetectedBarcodes.isEmpty) {
+      HapticFeedback.lightImpact();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🔍 وجّه الكاميرا نحو المنتجات واضغط الزر لإضافتها دفعة واحدة'),
+          duration: Duration(milliseconds: 1000),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    HapticFeedback.heavyImpact();
+    AudioService.playScanBeep();
+
+    final Set<String> distinctCodes = {};
+    for (final b in _lastDetectedBarcodes) {
+      final val = b.rawValue?.trim();
+      if (val != null && val.isNotEmpty) {
+        distinctCodes.add(val);
+      }
+    }
+
+    int addedCount = 0;
+    for (final code in distinctCodes) {
+      if (_isHandlingDialog || !mounted) break;
+      await _processBarcode(code);
+      addedCount++;
+    }
+
+    if (mounted && addedCount > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✨ تم التقاط وإضافة $addedCount سلع بنجاح!'),
+          backgroundColor: AppColors.accentDark,
+          duration: const Duration(milliseconds: 900),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -973,6 +1004,54 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // Big floating thumb trigger button in multi-scan mode
+                    if (_isMultiBarcodeMode)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+                              margin: const EdgeInsets.only(bottom: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.65),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: AppColors.accent, width: 1),
+                              ),
+                              child: const Text(
+                                'اضغط الزر للمسح الجماعي لجميع السلع في الفرايم 🎯',
+                                style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            InkWell(
+                              onTap: _triggerMultiScanCapture,
+                              borderRadius: BorderRadius.circular(38),
+                              child: Container(
+                                width: 74,
+                                height: 74,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  gradient: AppColors.primaryGradient,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppColors.accent.withOpacity(0.55),
+                                      blurRadius: 18,
+                                      spreadRadius: 2,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                  border: Border.all(color: Colors.white, width: 3),
+                                ),
+                                child: const Center(
+                                  child: Icon(Icons.qr_code_scanner, color: Colors.white, size: 36),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
                     // Live Cart Box
                     Container(
                       decoration: BoxDecoration(

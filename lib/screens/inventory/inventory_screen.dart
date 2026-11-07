@@ -19,6 +19,7 @@ class InventoryScreen extends StatefulWidget {
 
 class _InventoryScreenState extends State<InventoryScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
+  bool _isGridView = false;
 
   @override
   void initState() {
@@ -481,7 +482,65 @@ class _InventoryScreenState extends State<InventoryScreen> {
           ),
           const SizedBox(height: 6),
 
-          // Products List
+          // View Toggle & Total Counter Row
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '${inv.products.length} سلعة معروضة',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      InkWell(
+                        onTap: () => setState(() => _isGridView = false),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: !_isGridView ? AppColors.primaryIndigo : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            Icons.view_list_rounded,
+                            size: 18,
+                            color: !_isGridView ? Colors.white : Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+                      InkWell(
+                        onTap: () => setState(() => _isGridView = true),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _isGridView ? AppColors.primaryIndigo : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            Icons.grid_view_rounded,
+                            size: 18,
+                            color: _isGridView ? Colors.white : Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Products List / Grid
           Expanded(
             child: inv.isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -496,7 +555,103 @@ class _InventoryScreenState extends State<InventoryScreen> {
                           ],
                         ),
                       )
-                    : ListView.builder(
+                    : _isGridView
+                        ? GridView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              childAspectRatio: 0.95,
+                              crossAxisSpacing: 10,
+                              mainAxisSpacing: 10,
+                            ),
+                            itemCount: inv.products.length,
+                            itemBuilder: (context, i) {
+                              final p = inv.products[i];
+                              return Card(
+                                elevation: 1,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  side: BorderSide(color: isDark ? AppColors.darkBorder : AppColors.lightBorder, width: 0.8),
+                                ),
+                                child: InkWell(
+                                  onTap: () => _onEditProduct(p),
+                                  borderRadius: BorderRadius.circular(14),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(10),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.primaryIndigo.withOpacity(0.1),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                p.category.isNotEmpty ? p.category : 'عام',
+                                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primaryIndigo),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: (p.quantity <= 5 ? AppColors.danger : AppColors.success).withOpacity(0.12),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                '${p.quantity.toInt()} في المخزن',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: p.quantity <= 5 ? AppColors.danger : AppColors.success,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const Spacer(),
+                                        Text(
+                                          p.name,
+                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          p.barcode,
+                                          style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const Spacer(),
+                                        const Divider(height: 10),
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              CurrencyFormatter.format(p.retailPrice),
+                                              style: const TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.bold,
+                                                color: AppColors.primaryIndigo,
+                                              ),
+                                            ),
+                                            const Icon(Icons.edit_note, size: 18, color: Colors.grey),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          )
+                        : ListView.builder(
                         itemCount: inv.products.length,
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         itemBuilder: (context, i) {

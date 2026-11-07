@@ -3,19 +3,18 @@ import 'package:flutter/material.dart';
 class AppColors {
   // Brand & Accent Colors (Modern Fintech / POS Palette)
   static const Color primary = Color(0xFF0F172A); // Midnight Slate
-  static const Color primaryIndigo = Color(0xFF4F46E5); // Vibrant Indigo
-  static const Color primaryLight = Color(0xFF3B82F6); // Electric Blue
-  static const Color primaryDark = Color(0xFF020617); // Obsidian
-
+  static const Color primaryIndigo = Color(0xFF0D9488); // Algerian Emerald Green (Corporate POS)
+  static const Color primaryLight = Color(0xFF14B8A6); // Bright Emerald
+  static const Color primaryDark = Color(0xFF115E59); // Deep Emerald
   static const Color accent = Color(0xFF10B981); // Emerald Mint
   static const Color accentLight = Color(0xFFD1FAE5);
-  static const Color accentDark = Color(0xFF059669);
+  static const Color accentDark = Color(0xFF047857);
 
   // Status & Financial Indicators
   static const Color success = Color(0xFF10B981);
   static const Color warning = Color(0xFFF59E0B);
   static const Color danger = Color(0xFFEF4444);
-  static const Color info = Color(0xFF3B82F6);
+  static const Color info = Color(0xFF0EA5E9);
 
   // Light Theme Neutrals
   static const Color lightBackground = Color(0xFFF8FAFC);
@@ -38,11 +37,11 @@ class AppColors {
   static const Color creditColor = Color(0xFFF97316);
   static const Color partialColor = Color(0xFF0EA5E9);
   static const Color wholesaleColor = Color(0xFF8B5CF6);
-  static const Color retailColor = Color(0xFF3B82F6);
+  static const Color retailColor = Color(0xFF0D9488);
 
   // Gradients
   static const LinearGradient primaryGradient = LinearGradient(
-    colors: [Color(0xFF4F46E5), Color(0xFF3B82F6)],
+    colors: [Color(0xFF0F766E), Color(0xFF10B981)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
