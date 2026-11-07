@@ -174,8 +174,6 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
       );
     }
   }
-    }
-  }
 
   void _showInvoiceDetails(Invoice invoice) {
     final theme = Theme.of(context);
