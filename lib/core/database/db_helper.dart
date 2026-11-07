@@ -49,6 +49,9 @@ class DBHelper {
       onOpen: (db) async {
         // Ensure all application tables exist even if copied from catalog
         await _createTables(db);
+        try {
+          await db.execute('ALTER TABLE supplier_invoices ADD COLUMN image_path TEXT');
+        } catch (_) {}
       },
     );
   }
@@ -164,6 +167,7 @@ class DBHelper {
         total_amount REAL NOT NULL,
         paid_amount REAL NOT NULL,
         remaining_debt REAL DEFAULT 0,
+        image_path TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         notes TEXT,
         FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE

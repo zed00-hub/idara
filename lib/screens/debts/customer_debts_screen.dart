@@ -288,6 +288,13 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: Builder(
+          builder: (ctx) => IconButton(
+            icon: const Icon(Icons.menu, size: 26),
+            tooltip: 'القائمة الرئيسية',
+            onPressed: () => Scaffold.of(ctx).openDrawer(),
+          ),
+        ),
         title: Row(
           children: [
             Container(

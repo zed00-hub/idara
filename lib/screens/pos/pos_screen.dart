@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/services/audio_service.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../models/cart_item.dart';
 import '../../models/product.dart';
 import '../../providers/inventory_provider.dart';
 import '../../providers/pos_provider.dart';
-import '../../core/services/audio_service.dart';
+import 'barcode_scanner_screen.dart';
 import 'checkout_dialog.dart';
 
 class POSScreen extends StatefulWidget {
@@ -18,114 +17,10 @@ class POSScreen extends StatefulWidget {
   State<POSScreen> createState() => _POSScreenState();
 }
 
-class _POSScreenState extends State<POSScreen> with WidgetsBindingObserver, SingleTickerProviderStateMixin {
-  late MobileScannerController _scannerController;
-  late AnimationController _laserAnimController;
-  late Animation<double> _laserAnimation;
-
-  bool _isTorchOn = false;
-  bool _isFrontCamera = false;
-  bool _isScannerVisible = true;
-  String? _lastScannedBanner;
-  DateTime? _bannerDismissTime;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-
-    _initController();
-
-    // Laser scanning line animation
-    _laserAnimController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1800),
-    )..repeat(reverse: true);
-
-    _laserAnimation = Tween<double>(begin: 0.1, end: 0.9).animate(
-      CurvedAnimation(parent: _laserAnimController, curve: Curves.easeInOut),
-    );
-  }
-
-  void _initController() {
-    _scannerController = MobileScannerController(
-      detectionSpeed: DetectionSpeed.normal,
-      detectionTimeoutMs: 500,
-      cameraResolution: const Size(1280, 720),
-      facing: _isFrontCamera ? CameraFacing.front : CameraFacing.back,
-      torchEnabled: _isTorchOn,
-      formats: const [
-        BarcodeFormat.ean13,
-        BarcodeFormat.ean8,
-        BarcodeFormat.upcA,
-        BarcodeFormat.upcE,
-        BarcodeFormat.code128,
-        BarcodeFormat.code39,
-        BarcodeFormat.code93,
-        BarcodeFormat.qrCode,
-        BarcodeFormat.itf,
-        BarcodeFormat.dataMatrix,
-      ],
-    );
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!_scannerController.value.hasCameraPermission) return;
-
-    if (state == AppLifecycleState.resumed) {
-      if (_isScannerVisible) {
-        _scannerController.start();
-      }
-    } else if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
-      _scannerController.stop();
-    }
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _laserAnimController.dispose();
-    _scannerController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _restartScanner() async {
-    try {
-      await _scannerController.stop();
-    } catch (_) {}
-    try {
-      await _scannerController.start();
-    } catch (_) {}
-    if (mounted) setState(() {});
-  }
-
-  void _onDetect(BarcodeCapture capture) async {
-    final List<Barcode> barcodes = capture.barcodes;
+class _POSScreenState extends State<POSScreen> {
+  void _openBarcodeScanner() async {
     final pos = Provider.of<POSProvider>(context, listen: false);
-
-    for (final barcode in barcodes) {
-      final code = barcode.rawValue?.trim();
-      if (code != null && code.isNotEmpty) {
-        final product = await pos.handleBarcodeScanned(code);
-        if (product != null && mounted) {
-          setState(() {
-            _lastScannedBanner = '${product.name} • ${product.retailPrice.round()} دج';
-            _bannerDismissTime = DateTime.now().add(const Duration(milliseconds: 2200));
-          });
-
-          // Auto clear banner
-          Future.delayed(const Duration(milliseconds: 2300), () {
-            if (mounted && _bannerDismissTime != null && DateTime.now().isAfter(_bannerDismissTime!)) {
-              setState(() => _lastScannedBanner = null);
-            }
-          });
-        }
-        if (!pos.isMultiScan) {
-          break; // Single scan takes first code
-        }
-      }
-    }
+    await BarcodeScannerScreen.open(context, isMultiScan: pos.isMultiScan);
   }
 
   void _showManualSearchDialog() {
@@ -380,6 +275,13 @@ class _POSScreenState extends State<POSScreen> with WidgetsBindingObserver, Sing
 
     return Scaffold(
       appBar: AppBar(
+        leading: Builder(
+          builder: (ctx) => IconButton(
+            icon: const Icon(Icons.menu, size: 26),
+            tooltip: 'القائمة الرئيسية',
+            onPressed: () => Scaffold.of(ctx).openDrawer(),
+          ),
+        ),
         title: Row(
           children: [
             Container(
@@ -388,7 +290,7 @@ class _POSScreenState extends State<POSScreen> with WidgetsBindingObserver, Sing
                 color: AppColors.primaryIndigo.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.point_of_sale, color: AppColors.primaryIndigo, size: 22),
+              child: const Icon(Icons.point_of_sale, color: AppColors.primaryIndigo, size: 20),
             ),
             const SizedBox(width: 10),
             const Column(
@@ -401,278 +303,113 @@ class _POSScreenState extends State<POSScreen> with WidgetsBindingObserver, Sing
           ],
         ),
         actions: [
-          // Toggle Camera View Button
           IconButton(
-            icon: Icon(
-              _isScannerVisible ? Icons.videocam : Icons.videocam_off_outlined,
-              color: _isScannerVisible ? AppColors.accent : Colors.grey,
-            ),
-            tooltip: _isScannerVisible ? 'تصغير الكاميرا' : 'تشغيل الكاميرا',
-            onPressed: () {
-              setState(() {
-                _isScannerVisible = !_isScannerVisible;
-                if (!_isScannerVisible) {
-                  _scannerController.stop();
-                } else {
-                  _scannerController.start();
-                }
-              });
-            },
+            icon: const Icon(Icons.qr_code_scanner, color: AppColors.primaryIndigo),
+            tooltip: 'مسح باركود بالكاميرا',
+            onPressed: _openBarcodeScanner,
           ),
-          // Flashlight Toggle
-          if (_isScannerVisible)
-            IconButton(
-              icon: Icon(
-                _isTorchOn ? Icons.flash_on : Icons.flash_off,
-                color: _isTorchOn ? Colors.amber : null,
-              ),
-              tooltip: 'فلاش الكاميرا',
-              onPressed: () async {
-                await _scannerController.toggleTorch();
-                setState(() => _isTorchOn = !_isTorchOn);
-              },
-            ),
-          // Manual Search in 42k
           IconButton(
             icon: const Icon(Icons.search, color: AppColors.primaryIndigo),
-            tooltip: 'بحث يدوي بالاسم أو الباركود',
+            tooltip: 'بحث في 42,000 منتج',
             onPressed: _showManualSearchDialog,
           ),
-          // Clear cart
-          if (pos.cart.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.delete_sweep_outlined, color: AppColors.danger),
-              tooltip: 'تفريغ السلة',
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('تفريغ السلة؟'),
-                    content: const Text('هل أنت متأكد من مسح جميع المنتجات من السلة الحالية؟'),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('إلغاء')),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
-                        onPressed: () {
-                          pos.clearCart();
-                          Navigator.of(ctx).pop();
-                        },
-                        child: const Text('تفريغ'),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
         ],
       ),
       body: Column(
         children: [
-          // Upper Portion: Smart Camera Barcode Scanner
-          if (_isScannerVisible)
-            Container(
-              height: MediaQuery.of(context).size.height * 0.31,
-              color: Colors.black,
-              child: Stack(
-                fit: StackFit.expand,
+          // Top Action Card: Scan Barcode Button + Mode Selector
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                gradient: AppColors.primaryGradient,
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primaryIndigo.withOpacity(0.25),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Row(
                 children: [
-                  MobileScanner(
-                    controller: _scannerController,
-                    onDetect: _onDetect,
-                    errorBuilder: (context, error, child) {
-                      return Container(
-                        color: const Color(0xFF0F172A),
-                        padding: const EdgeInsets.all(16),
-                        child: Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.camera_alt_outlined, color: Colors.amber, size: 38),
-                              const SizedBox(height: 8),
-                              Text(
-                                error.errorCode == MobileScannerErrorCode.permissionDenied
-                                    ? 'يرجى منح صلاحية الكاميرا لمسح الباركود'
-                                    : 'جاري تشغيل الكاميرا...',
-                                style: const TextStyle(color: Colors.white, fontSize: 13),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 12),
-                              ElevatedButton.icon(
-                                onPressed: _restartScanner,
-                                icon: const Icon(Icons.refresh, size: 16),
-                                label: const Text('إعادة المحاولة'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppColors.accent,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-
-                  // High-tech Viewfinder with Glowing Corners
-                  Center(
-                    child: Container(
-                      width: 280,
-                      height: 130,
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: pos.isMultiScan ? AppColors.accent : Colors.white.withOpacity(0.85),
-                          width: 2,
-                        ),
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: (pos.isMultiScan ? AppColors.accent : AppColors.primaryIndigo).withOpacity(0.35),
-                            blurRadius: 16,
-                            spreadRadius: 1,
-                          ),
-                        ],
+                  // Prominent Scanner Button
+                  Expanded(
+                    flex: 3,
+                    child: ElevatedButton.icon(
+                      onPressed: _openBarcodeScanner,
+                      icon: const Icon(Icons.qr_code_scanner, size: 22),
+                      label: const Text(
+                        'مسح باركود بالكاميرا 📷',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                       ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(14),
-                        child: AnimatedBuilder(
-                          animation: _laserAnimation,
-                          builder: (context, _) {
-                            return Align(
-                              alignment: Alignment(0, (_laserAnimation.value * 2) - 1),
-                              child: Container(
-                                height: 2.5,
-                                width: double.infinity,
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      Colors.transparent,
-                                      pos.isMultiScan ? AppColors.accent : const Color(0xFFEF4444),
-                                      Colors.transparent,
-                                    ],
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: (pos.isMultiScan ? AppColors.accent : Colors.red).withOpacity(0.8),
-                                      blurRadius: 6,
-                                      spreadRadius: 1,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: AppColors.primaryIndigo,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
                     ),
                   ),
+                  const SizedBox(width: 8),
 
-                  // Top Scan Controls Overlay Pill
-                  Positioned(
-                    top: 10,
-                    right: 12,
-                    left: 12,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  // Search 42k button
+                  IconButton(
+                    onPressed: _showManualSearchDialog,
+                    icon: Container(
+                      padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.7),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.white.withOpacity(0.15)),
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(
-                                pos.isMultiScan ? Icons.bolt : Icons.filter_center_focus,
-                                color: pos.isMultiScan ? AppColors.accent : Colors.white,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                pos.isMultiScan ? 'مسح سريع مستمر ⚡' : 'مسح ذكي تلقائي 🎯',
-                                style: TextStyle(
-                                  color: pos.isMultiScan ? AppColors.accent : Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                          Row(
-                            children: [
-                              // Flip camera
-                              InkWell(
-                                onTap: () async {
-                                  await _scannerController.switchCamera();
-                                  setState(() => _isFrontCamera = !_isFrontCamera);
+                      child: const Icon(Icons.search, color: Colors.white, size: 22),
+                    ),
+                    tooltip: 'بحث في 42,000 منتج',
+                  ),
+
+                  // Clear Cart button
+                  if (pos.cart.isNotEmpty)
+                    IconButton(
+                      onPressed: () {
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('تفريغ السلة؟'),
+                            content: const Text('هل أنت متأكد من مسح جميع المنتجات من السلة؟'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('إلغاء')),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+                                onPressed: () {
+                                  pos.clearCart();
+                                  Navigator.of(ctx).pop();
                                 },
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.15),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(Icons.flip_camera_android, color: Colors.white, size: 18),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              // Multi-scan switch
-                              Transform.scale(
-                                scale: 0.8,
-                                child: Switch(
-                                  value: pos.isMultiScan,
-                                  activeColor: AppColors.accent,
-                                  onChanged: (val) => pos.toggleMultiScan(val),
-                                ),
+                                child: const Text('تفريغ'),
                               ),
                             ],
                           ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  // Floating Last Scanned Product Confirmation Banner
-                  if (_lastScannedBanner != null)
-                    Positioned(
-                      bottom: 10,
-                      left: 20,
-                      right: 20,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        );
+                      },
+                      icon: Container(
+                        padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: AppColors.accentDark.withOpacity(0.92),
-                          borderRadius: BorderRadius.circular(14),
-                          boxShadow: const [
-                            BoxShadow(color: Colors.black38, blurRadius: 10, offset: Offset(0, 3)),
-                          ],
+                          color: AppColors.danger.withOpacity(0.85),
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.check_circle, color: Colors.white, size: 18),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                _lastScannedBanner!,
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
+                        child: const Icon(Icons.delete_sweep, color: Colors.white, size: 22),
                       ),
+                      tooltip: 'تفريغ السلة',
                     ),
                 ],
               ),
             ),
+          ),
 
-          // Quick Action Ribbon: Price Type & Quick Preset Items (خبز، حليب، بيض)
+          // Quick Action Ribbon: Price Type & Common Quick Items
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
               color: isDark ? AppColors.darkSurface : Colors.white,
               border: Border(
@@ -746,7 +483,6 @@ class _POSScreenState extends State<POSScreen> with WidgetsBindingObserver, Sing
                         _buildQuickAddChip('🥛 حليب', 25.0),
                         _buildQuickAddChip('🥚 بيض', 25.0),
                         _buildQuickAddChip('💧 ماء 1.5ل', 40.0),
-                        // Custom unbarcoded item button
                         ActionChip(
                           avatar: const Icon(Icons.add, size: 14, color: AppColors.primaryIndigo),
                           label: const Text('أخرى', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
@@ -763,7 +499,7 @@ class _POSScreenState extends State<POSScreen> with WidgetsBindingObserver, Sing
             ),
           ),
 
-          // Lower Portion: Cart List and Live Totals
+          // Main Cart List
           Expanded(
             child: pos.cart.isEmpty
                 ? Center(
@@ -772,31 +508,34 @@ class _POSScreenState extends State<POSScreen> with WidgetsBindingObserver, Sing
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Container(
-                            width: 80,
-                            height: 80,
+                            width: 84,
+                            height: 84,
                             decoration: BoxDecoration(
                               color: AppColors.primaryIndigo.withOpacity(0.08),
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(Icons.shopping_cart_outlined, size: 40, color: AppColors.primaryIndigo),
-                          ),
-                          const SizedBox(height: 14),
-                          const Text(
-                            'سلة المشتريات فارغة',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            _isScannerVisible
-                                ? 'وجه الكاميرا نحو باركود أي سلعة للإضافة الفورية'
-                                : 'اضغط على أيقونة الكاميرا أو ابحث بالاسم للإضافة',
-                            style: const TextStyle(fontSize: 12, color: Colors.grey),
+                            child: const Icon(Icons.qr_code_scanner, size: 44, color: AppColors.primaryIndigo),
                           ),
                           const SizedBox(height: 16),
-                          OutlinedButton.icon(
-                            onPressed: _showManualSearchDialog,
-                            icon: const Icon(Icons.search, size: 18),
-                            label: const Text('تصفح كتالوج 42,000 منتج'),
+                          const Text(
+                            'سلة المشتريات فارغة',
+                            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'اضغط زر الباركود في الوسط أو الزر أعلاه للمسح الفوري',
+                            style: TextStyle(fontSize: 13, color: Colors.grey),
+                          ),
+                          const SizedBox(height: 18),
+                          ElevatedButton.icon(
+                            onPressed: _openBarcodeScanner,
+                            icon: const Icon(Icons.camera_alt),
+                            label: const Text('تشغيل الماسح بالكاميرا'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primaryIndigo,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                            ),
                           ),
                         ],
                       ),
@@ -986,7 +725,6 @@ class _POSScreenState extends State<POSScreen> with WidgetsBindingObserver, Sing
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Subtotal and Items Counter
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [

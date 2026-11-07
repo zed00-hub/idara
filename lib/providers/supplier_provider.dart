@@ -63,6 +63,7 @@ class SupplierProvider extends ChangeNotifier {
     required double paidAmount,
     String? invoiceNumber,
     String? notes,
+    String? imagePath,
   }) async {
     final db = await DBHelper.instance.database;
     final remaining = (totalAmount - paidAmount) > 0 ? (totalAmount - paidAmount) : 0.0;
@@ -76,6 +77,7 @@ class SupplierProvider extends ChangeNotifier {
           'total_amount': totalAmount,
           'paid_amount': paidAmount,
           'remaining_debt': remaining,
+          'image_path': imagePath,
           'notes': notes,
           'created_at': DateTime.now().toIso8601String(),
         });
@@ -93,6 +95,16 @@ class SupplierProvider extends ChangeNotifier {
     } catch (e) {
       return false;
     }
+  }
+
+  Future<List<Map<String, dynamic>>> getSupplierInvoices(int supplierId) async {
+    final db = await DBHelper.instance.database;
+    return await db.query(
+      'supplier_invoices',
+      where: 'supplier_id = ?',
+      whereArgs: [supplierId],
+      orderBy: 'created_at DESC',
+    );
   }
 
   Future<bool> paySupplierDebt({
