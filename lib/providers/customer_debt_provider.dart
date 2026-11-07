@@ -15,7 +15,11 @@ class CustomerDebtProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
 
   double get totalDebts {
-    return _customers.fold(0.0, (sum, c) => sum + c.currentDebt);
+    return _customers.fold(0.0, (sum, c) => c.currentDebt > 0 ? sum + c.currentDebt : sum);
+  }
+
+  double get totalAdvances {
+    return _customers.fold(0.0, (sum, c) => c.currentDebt < 0 ? sum + (-c.currentDebt) : sum);
   }
 
   Future<void> loadCustomers({String query = ''}) async {
@@ -122,7 +126,8 @@ class CustomerDebtProvider extends ChangeNotifier {
 
       final customer = Customer.fromMap(custMaps.first);
       final prevDebt = customer.currentDebt;
-      final newDebt = (prevDebt - paymentAmount) > 0 ? (prevDebt - paymentAmount) : 0.0;
+      // Allow negative debt which accurately denotes an advance / credit balance (تسبيق) in customer's favor
+      final newDebt = prevDebt - paymentAmount;
 
       await db.transaction((txn) async {
         await txn.insert('customer_transactions', {
@@ -169,12 +174,19 @@ class CustomerDebtProvider extends ChangeNotifier {
     final buffer = StringBuffer();
     buffer.writeln('السلام عليكم ورحمة الله أخي الكريم *${customer.name}*،');
     buffer.writeln('تحية طيبة من *$storeName* 🏪');
-    buffer.writeln('نود تذكيركم بمستحقات الحساب الجاري لديكم:');
-    buffer.writeln('💰 *المبلغ المستحق: ${CurrencyFormatter.format(customer.currentDebt)}*');
+    if (customer.currentDebt > 0) {
+      buffer.writeln('نود تذكيركم بمستحقات الحساب الجاري لديكم:');
+      buffer.writeln('💰 *المبلغ المستحق: ${CurrencyFormatter.format(customer.currentDebt)}*');
+    } else if (customer.currentDebt < 0) {
+      buffer.writeln('نحيطكم علماً برصيدكم الدائن المسبق في حسابكم لدينا:');
+      buffer.writeln('💰 *الرصيد المتاح (تسبيق لصالحكم): ${CurrencyFormatter.format(-customer.currentDebt)}*');
+    } else {
+      buffer.writeln('نحيطكم علماً بأن حسابكم خالص تماماً ولا يوجد أي دين مسجل.');
+    }
     buffer.writeln('📅 حتى تاريخ: ${DateFormat('yyyy/MM/dd').format(DateTime.now())}');
     if (storePhone.isNotEmpty) buffer.writeln('📞 للاستفسار: $storePhone');
     buffer.writeln('بارك الله فيكم وشكراً لتعاملكم معنا!');
 
-    await Share.share(buffer.toString(), subject: 'تذكير حساب - $storeName');
+    await Share.share(buffer.toString(), subject: 'كشف حساب - $storeName');
   }
 }

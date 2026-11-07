@@ -100,5 +100,56 @@ void main() {
       expect(change, 60);
       expect(remainingDebt, 0.0);
     });
+
+    test('Partial payment for new customer accurately leaves remaining debt', () {
+      const netTotal = 1415.0;
+      const paidAmount = 415.0;
+
+      final remainingDebt = netTotal - paidAmount;
+      expect(remainingDebt, 1000.0);
+
+      // Previous customer debt was 0.0 (new customer)
+      const prevCustomerDebt = 0.0;
+      final newCustomerDebt = prevCustomerDebt + remainingDebt;
+      expect(newCustomerDebt, 1000.0);
+    });
+
+    test('Customer overpayment records advance / credit balance as negative debt', () {
+      const prevDebt = 1000.0;
+      const paymentAmount = 1500.0;
+
+      // In double-entry retail accounting, debt - payment = new debt balance
+      final newDebt = prevDebt - paymentAmount;
+
+      // Expect -500.0 indicating a 500 DZD credit balance / advance in customer's favor
+      expect(newDebt, -500.0);
+      expect(newDebt < 0, isTrue);
+      final advanceAmount = -newDebt;
+      expect(advanceAmount, 500.0);
+    });
+
+    test('Advance credit balance is correctly offset by subsequent credit purchase', () {
+      // Customer has 500 DZD advance (debt = -500.0)
+      const currentDebt = -500.0;
+      const newPurchaseDebt = 700.0;
+
+      final updatedDebt = currentDebt + newPurchaseDebt;
+      // -500 + 700 = 200 DZD owed to store
+      expect(updatedDebt, 200.0);
+    });
+
+    test('Cancelled invoice exclusion from total sales revenue', () {
+      final invoices = [
+        {'id': 1, 'amount': 1500.0, 'is_cancelled': 0},
+        {'id': 2, 'amount': 2200.0, 'is_cancelled': 1}, // cancelled
+        {'id': 3, 'amount': 800.0, 'is_cancelled': 0},
+      ];
+
+      final totalActiveRevenue = invoices
+          .where((inv) => inv['is_cancelled'] == 0)
+          .fold(0.0, (sum, inv) => sum + (inv['amount'] as double));
+
+      expect(totalActiveRevenue, 2300.0); // 1500 + 800
+    });
   });
 }

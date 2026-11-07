@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../core/constants/app_colors.dart';
 import '../models/product.dart';
+import '../providers/customer_debt_provider.dart';
 import '../providers/pos_provider.dart';
 import '../widgets/app_drawer.dart';
 import 'debts/customer_debts_screen.dart';
@@ -425,7 +426,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }) {
     final isSelected = _currentIndex == index;
     return InkWell(
-      onTap: () => setState(() => _currentIndex = index),
+      onTap: () {
+        setState(() => _currentIndex = index);
+        if (index == 3) {
+          Provider.of<CustomerDebtProvider>(context, listen: false).loadCustomers();
+        }
+      },
       borderRadius: BorderRadius.circular(12),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),

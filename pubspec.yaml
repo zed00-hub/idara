@@ -2,7 +2,7 @@ name: ndmha
 description: "نظمها - تطبيق نقاط البيع وإدارة المتاجر Offline-First"
 publish_to: 'none'
 
-version: 1.3.5+9
+version: 1.3.6+10
 
 environment:
   sdk: ^3.13.7

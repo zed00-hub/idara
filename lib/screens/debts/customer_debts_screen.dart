@@ -79,7 +79,9 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
   }
 
   void _showPaymentDialog(Customer customer) {
-    final amountCtrl = TextEditingController(text: customer.currentDebt.round().toString());
+    final amountCtrl = TextEditingController(
+      text: customer.currentDebt > 0 ? customer.currentDebt.round().toString() : '',
+    );
     final notesCtrl = TextEditingController();
     final debtProv = Provider.of<CustomerDebtProvider>(context, listen: false);
 
@@ -95,16 +97,32 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: AppColors.creditColor.withOpacity(0.12),
+                color: (customer.currentDebt < 0
+                        ? const Color(0xFF0D9488)
+                        : (customer.currentDebt > 0 ? AppColors.creditColor : AppColors.success))
+                    .withOpacity(0.12),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('إجمالي الدين الحالي:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                   Text(
-                    CurrencyFormatter.format(customer.currentDebt),
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.creditColor),
+                    customer.currentDebt < 0
+                        ? 'رصيد التسبيق الحالي:'
+                        : (customer.currentDebt > 0 ? 'إجمالي الدين الحالي:' : 'حالة الحساب:'),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  Text(
+                    customer.currentDebt < 0
+                        ? '+${CurrencyFormatter.format(-customer.currentDebt)}'
+                        : (customer.currentDebt > 0 ? CurrencyFormatter.format(customer.currentDebt) : 'خالص ✅'),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: customer.currentDebt < 0
+                          ? const Color(0xFF0D9488)
+                          : (customer.currentDebt > 0 ? AppColors.creditColor : AppColors.success),
+                    ),
                   ),
                 ],
               ),
@@ -114,7 +132,10 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
               controller: amountCtrl,
               autofocus: true,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'المبلغ المدفوع (دج) *', prefixIcon: Icon(Icons.payments_outlined)),
+              decoration: const InputDecoration(
+                labelText: 'المبلغ المدفوع (دج) *',
+                prefixIcon: Icon(Icons.payments_outlined),
+              ),
             ),
             const SizedBox(height: 10),
             TextField(
@@ -128,21 +149,54 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
           ElevatedButton(
             onPressed: () async {
               final amt = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
-              if (amt > 0) {
-                await debtProv.recordPayment(
-                  customerId: customer.id!,
-                  paymentAmount: amt,
-                  notes: notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim(),
-                );
-                if (mounted) {
-                  Navigator.of(ctx).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('✅ تم تسجيل الدفعة وتحديث رصيد الزبون'),
-                      behavior: SnackBarBehavior.floating,
+              if (amt <= 0) return;
+
+              // If payment exceeds current debt, request confirmation to record difference as advance
+              if (customer.currentDebt > 0 && amt > customer.currentDebt) {
+                final excess = amt - customer.currentDebt;
+                final confirmExcess = await showDialog<bool>(
+                  context: context,
+                  builder: (cCtx) => AlertDialog(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    title: const Row(
+                      children: [
+                        Icon(Icons.info_outline, color: AppColors.primaryIndigo),
+                        SizedBox(width: 8),
+                        Text('تأكيد رصيد تسبيق إضافي'),
+                      ],
                     ),
-                  );
-                }
+                    content: Text(
+                      'المبلغ المدفوع (${CurrencyFormatter.format(amt)}) أكبر من الدين الحالي (${CurrencyFormatter.format(customer.currentDebt)}) بمقدار ${CurrencyFormatter.format(excess)}.\n\n'
+                      'هل تريد تسجيل مبلغ ${CurrencyFormatter.format(excess)} كرصيد إضافي (تسبيق لصالح الزبون)؟',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(cCtx).pop(false),
+                        child: const Text('تعديل المبلغ'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => Navigator.of(cCtx).pop(true),
+                        child: const Text('نعم، حفظ التسبيق'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmExcess != true) return;
+              }
+
+              await debtProv.recordPayment(
+                customerId: customer.id!,
+                paymentAmount: amt,
+                notes: notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim(),
+              );
+              if (mounted) {
+                Navigator.of(ctx).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('✅ تم تسجيل الدفعة وتحديث رصيد الزبون'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
               }
             },
             child: const Text('تأكيد القبض'),
@@ -270,12 +324,25 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
-                          color: AppColors.creditColor.withOpacity(0.12),
+                          color: (customer.currentDebt < 0
+                                  ? const Color(0xFF0D9488)
+                                  : (customer.currentDebt > 0 ? AppColors.creditColor : AppColors.success))
+                              .withOpacity(0.12),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text(
-                          'الدين: ${CurrencyFormatter.format(customer.currentDebt)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.creditColor, fontSize: 13),
+                          customer.currentDebt < 0
+                              ? 'تسبيق: +${CurrencyFormatter.format(-customer.currentDebt)}'
+                              : (customer.currentDebt > 0
+                                  ? 'الدين: ${CurrencyFormatter.format(customer.currentDebt)}'
+                                  : 'خالص ✅'),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: customer.currentDebt < 0
+                                ? const Color(0xFF0D9488)
+                                : (customer.currentDebt > 0 ? AppColors.creditColor : AppColors.success),
+                            fontSize: 13,
+                          ),
                         ),
                       ),
                       IconButton(
@@ -440,6 +507,13 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
                         CurrencyFormatter.format(debtProv.totalDebts),
                         style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
                       ),
+                      if (debtProv.totalAdvances > 0) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'تسبيقات للزبائن: +${CurrencyFormatter.format(debtProv.totalAdvances)}',
+                          style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold),
+                        ),
+                      ],
                     ],
                   ),
                   Container(
@@ -500,13 +574,17 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
                                 width: 44,
                                 height: 44,
                                 decoration: BoxDecoration(
-                                  color: AppColors.creditColor.withOpacity(0.1),
+                                  color: (cust.currentDebt < 0 ? const Color(0xFF0D9488) : AppColors.creditColor).withOpacity(0.1),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Center(
                                   child: Text(
                                     cust.name.isNotEmpty ? cust.name[0] : 'ز',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.creditColor),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 18,
+                                      color: cust.currentDebt < 0 ? const Color(0xFF0D9488) : AppColors.creditColor,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -520,19 +598,29 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
                                   Text(
-                                    CurrencyFormatter.format(cust.currentDebt),
+                                    cust.currentDebt < 0
+                                        ? '+${CurrencyFormatter.format(-cust.currentDebt)}'
+                                        : (cust.currentDebt > 0
+                                            ? CurrencyFormatter.format(cust.currentDebt)
+                                            : '0 دج'),
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 15,
-                                      color: cust.currentDebt > 0 ? AppColors.creditColor : AppColors.success,
+                                      color: cust.currentDebt < 0
+                                          ? const Color(0xFF0D9488)
+                                          : (cust.currentDebt > 0 ? AppColors.creditColor : AppColors.success),
                                     ),
                                   ),
                                   Text(
-                                    cust.currentDebt > 0 ? 'مطلوب دين' : 'خالص ✅',
+                                    cust.currentDebt < 0
+                                        ? 'تسبيق للزبون 👍'
+                                        : (cust.currentDebt > 0 ? 'مطلوب دين ⏳' : 'خالص ✅'),
                                     style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.bold,
-                                      color: cust.currentDebt > 0 ? Colors.red : AppColors.success,
+                                      color: cust.currentDebt < 0
+                                          ? const Color(0xFF0D9488)
+                                          : (cust.currentDebt > 0 ? Colors.red : AppColors.success),
                                     ),
                                   ),
                                 ],

@@ -55,11 +55,13 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
 
     switch (_filter) {
       case 'today':
-        return _invoices.where((inv) => inv.createdAt.startsWith(todayStr)).toList();
+        return _invoices.where((inv) => !inv.isCancelled && inv.createdAt.startsWith(todayStr)).toList();
       case 'cash':
-        return _invoices.where((inv) => inv.paymentType == PaymentType.cash).toList();
+        return _invoices.where((inv) => !inv.isCancelled && inv.paymentType == PaymentType.cash).toList();
       case 'credit':
-        return _invoices.where((inv) => inv.paymentType == PaymentType.credit || inv.paymentType == PaymentType.partial).toList();
+        return _invoices.where((inv) => !inv.isCancelled && (inv.paymentType == PaymentType.credit || inv.paymentType == PaymentType.partial)).toList();
+      case 'cancelled':
+        return _invoices.where((inv) => inv.isCancelled).toList();
       default:
         return _invoices;
     }
@@ -68,7 +70,7 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
   double get _todayTotalRevenue {
     final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
     return _invoices
-        .where((inv) => inv.createdAt.startsWith(todayStr))
+        .where((inv) => !inv.isCancelled && inv.createdAt.startsWith(todayStr))
         .fold(0.0, (sum, inv) => sum + inv.paidAmount);
   }
 
@@ -85,7 +87,7 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
         ),
         content: Text(
           'هل أنت متأكد من إلغاء الفاتورة ${invoice.invoiceNumber}؟\n'
-          'سيتم إعادة السلع المبيعة للمخزون تلقائياً وخصم الدين في حال كانت آجلة.',
+          'سيتم إعادة السلع المبيعة للمخزون تلقائياً وخصم الدين في حال كانت آجلة، وستبقى الفاتورة مسجلة في الأرشيف كفاتورة ملغاة.',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('تراجع')),
@@ -117,7 +119,7 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
         final custMaps = await txn.query('customers', where: 'id = ?', whereArgs: [invoice.customerId]);
         if (custMaps.isNotEmpty) {
           final prevDebt = (custMaps.first['current_debt'] as num?)?.toDouble() ?? 0.0;
-          final newDebt = (prevDebt - invoice.remainingDebt) > 0 ? (prevDebt - invoice.remainingDebt) : 0.0;
+          final newDebt = prevDebt - invoice.remainingDebt;
           await txn.update(
             'customers',
             {'current_debt': newDebt},
@@ -148,9 +150,16 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
         }
       }
 
-      // 3. Delete invoice items & invoice
-      await txn.delete('invoice_items', where: 'invoice_id = ?', whereArgs: [invoice.id]);
-      await txn.delete('invoices', where: 'id = ?', whereArgs: [invoice.id]);
+      // 4. Soft-cancel invoice (DO NOT DELETE) to preserve audit trail
+      await txn.update(
+        'invoices',
+        {
+          'is_cancelled': 1,
+          'cancelled_at': DateTime.now().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [invoice.id],
+      );
     });
 
     if (mounted) {
@@ -158,11 +167,13 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
       await _loadInvoices();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('✅ تم إلغاء الفاتورة وإرجاع السلع للمخزون بنجاح'),
+          content: Text('✅ تم إلغاء الفاتورة وإرجاع السلع للمخزون وحفظها كملغاة في السجل'),
           backgroundColor: AppColors.success,
           behavior: SnackBarBehavior.floating,
         ),
       );
+    }
+  }
     }
   }
 
@@ -202,15 +213,24 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: AppColors.primaryIndigo.withOpacity(0.1),
+                          color: (invoice.isCancelled ? AppColors.danger : AppColors.primaryIndigo).withOpacity(0.1),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Icon(Icons.receipt_long, color: AppColors.primaryIndigo, size: 20),
+                        child: Icon(
+                          invoice.isCancelled ? Icons.block : Icons.receipt_long,
+                          color: invoice.isCancelled ? AppColors.danger : AppColors.primaryIndigo,
+                          size: 20,
+                        ),
                       ),
                       const SizedBox(width: 10),
                       Text(
                         'فاتورة ${invoice.invoiceNumber}',
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: invoice.isCancelled ? AppColors.danger : null,
+                          decoration: invoice.isCancelled ? TextDecoration.lineThrough : null,
+                        ),
                       ),
                     ],
                   ),
@@ -220,6 +240,29 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
                   ),
                 ],
               ),
+              if (invoice.isCancelled) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.danger.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.danger.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.cancel, color: AppColors.danger, size: 22),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          '⚠️ هذه الفاتورة ملغاة ومسترجعة للمخزون${invoice.cancelledAt != null ? ' (${DateFormat('yyyy/MM/dd HH:mm').format(DateTime.tryParse(invoice.cancelledAt!) ?? DateTime.now())})' : ''}',
+                          style: const TextStyle(color: AppColors.danger, fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const Divider(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -300,16 +343,18 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: () => _cancelInvoice(invoice),
-                icon: const Icon(Icons.delete_sweep_outlined, color: AppColors.danger, size: 18),
-                label: const Text('إلغاء واسترجاع الفاتورة للمخزون', style: TextStyle(color: AppColors.danger)),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AppColors.danger),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+              if (!invoice.isCancelled) ...[
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () => _cancelInvoice(invoice),
+                  icon: const Icon(Icons.delete_sweep_outlined, color: AppColors.danger, size: 18),
+                  label: const Text('إلغاء واسترجاع الفاتورة للمخزون', style: TextStyle(color: AppColors.danger)),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppColors.danger),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         );
@@ -408,16 +453,21 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
           // Filters
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Row(
-              children: [
-                _buildFilterChip('الكل', 'all'),
-                const SizedBox(width: 6),
-                _buildFilterChip('اليوم 📅', 'today'),
-                const SizedBox(width: 6),
-                _buildFilterChip('نقدي 💵', 'cash'),
-                const SizedBox(width: 6),
-                _buildFilterChip('كريدي ⏳', 'credit'),
-              ],
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildFilterChip('الكل', 'all'),
+                  const SizedBox(width: 6),
+                  _buildFilterChip('اليوم 📅', 'today'),
+                  const SizedBox(width: 6),
+                  _buildFilterChip('نقدي 💵', 'cash'),
+                  const SizedBox(width: 6),
+                  _buildFilterChip('كريدي ⏳', 'credit'),
+                  const SizedBox(width: 6),
+                  _buildFilterChip('ملغاة 🚫', 'cancelled'),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 4),
@@ -445,6 +495,10 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
                           final date = DateTime.tryParse(inv.createdAt) ?? DateTime.now();
                           final isCredit = inv.paymentType == PaymentType.credit || inv.paymentType == PaymentType.partial;
 
+                          final statusColor = inv.isCancelled
+                              ? AppColors.danger
+                              : (isCredit ? AppColors.creditColor : AppColors.cashColor);
+
                           return Card(
                             child: ListTile(
                               onTap: () => _showInvoiceDetails(inv),
@@ -453,12 +507,14 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
                                 width: 44,
                                 height: 44,
                                 decoration: BoxDecoration(
-                                  color: (isCredit ? AppColors.creditColor : AppColors.cashColor).withOpacity(0.1),
+                                  color: statusColor.withOpacity(0.1),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Icon(
-                                  isCredit ? Icons.hourglass_top_outlined : Icons.payments_outlined,
-                                  color: isCredit ? AppColors.creditColor : AppColors.cashColor,
+                                  inv.isCancelled
+                                      ? Icons.block
+                                      : (isCredit ? Icons.hourglass_top_outlined : Icons.payments_outlined),
+                                  color: statusColor,
                                   size: 22,
                                 ),
                               ),
@@ -467,11 +523,21 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
                                 children: [
                                   Text(
                                     inv.invoiceNumber,
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                      decoration: inv.isCancelled ? TextDecoration.lineThrough : null,
+                                      color: inv.isCancelled ? Colors.grey : null,
+                                    ),
                                   ),
                                   Text(
                                     CurrencyFormatter.format(inv.totalAmount),
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.primaryIndigo),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                      decoration: inv.isCancelled ? TextDecoration.lineThrough : null,
+                                      color: inv.isCancelled ? Colors.grey : AppColors.primaryIndigo,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -487,15 +553,15 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: (isCredit ? AppColors.creditColor : AppColors.cashColor).withOpacity(0.12),
+                                        color: statusColor.withOpacity(0.12),
                                         borderRadius: BorderRadius.circular(4),
                                       ),
                                       child: Text(
-                                        isCredit ? 'كريدي' : 'نقدي',
+                                        inv.isCancelled ? 'ملغاة 🚫' : (isCredit ? 'كريدي' : 'نقدي'),
                                         style: TextStyle(
                                           fontSize: 10,
                                           fontWeight: FontWeight.bold,
-                                          color: isCredit ? AppColors.creditColor : AppColors.cashColor,
+                                          color: statusColor,
                                         ),
                                       ),
                                     ),

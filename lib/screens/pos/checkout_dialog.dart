@@ -82,7 +82,7 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
       }
     }
 
-    double paidAmount = _customPaid;
+    double paidAmount = double.tryParse(_paidController.text.trim()) ?? _customPaid;
     double changeGiven = 0.0;
     double remainingDebt = 0.0;
 
@@ -128,6 +128,11 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
       remainingDebt: remainingDebt,
       notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
     );
+
+    // Refresh CustomerDebtProvider so customer debts screen immediately reflects new balances
+    if (mounted) {
+      await Provider.of<CustomerDebtProvider>(context, listen: false).loadCustomers();
+    }
 
     if (!mounted) return;
     Navigator.of(context).pop(); // Close checkout dialog
@@ -177,7 +182,11 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                   phone: phoneCtrl.text.trim(),
                 );
                 if (newCust != null && mounted) {
-                  setState(() => _selectedCustomer = newCust);
+                  final matched = debtProv.customers.firstWhere(
+                    (c) => c.id == newCust.id,
+                    orElse: () => newCust,
+                  );
+                  setState(() => _selectedCustomer = matched);
                 }
                 Navigator.of(ctx).pop();
               }
@@ -386,14 +395,21 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                     Expanded(
                       child: DropdownButtonFormField<Customer>(
                         value: _selectedCustomer,
+                        isExpanded: true,
                         decoration: InputDecoration(
                           labelText: _paymentType != PaymentType.cash ? 'الزبون (إجباري للدين) *' : 'الزبون (اختياري)',
                           prefixIcon: const Icon(Icons.person),
                         ),
                         items: debtProv.customers.map((c) {
+                          final debtText = c.currentDebt < 0
+                              ? 'تسبيق: +${CurrencyFormatter.format(-c.currentDebt)}'
+                              : (c.currentDebt > 0 ? 'دين: ${CurrencyFormatter.format(c.currentDebt)}' : 'بدون دين');
                           return DropdownMenuItem<Customer>(
                             value: c,
-                            child: Text('${c.name} (دين سابق: ${c.currentDebt.round()} دج)'),
+                            child: Text(
+                              '${c.name} ($debtText)',
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           );
                         }).toList(),
                         onChanged: (cust) => setState(() => _selectedCustomer = cust),

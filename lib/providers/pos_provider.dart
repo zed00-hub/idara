@@ -249,8 +249,11 @@ class POSProvider extends ChangeNotifier {
         }
 
         // 3. If credit or partial, record customer transaction & update debt
-        if (remainingDebt > 0 && _selectedCustomer != null) {
-          final currentDebt = _selectedCustomer!.currentDebt;
+        if (remainingDebt > 0 && _selectedCustomer?.id != null) {
+          final custRows = await txn.query('customers', where: 'id = ?', whereArgs: [_selectedCustomer!.id]);
+          final currentDebt = custRows.isNotEmpty
+              ? (custRows.first['current_debt'] as num?)?.toDouble() ?? 0.0
+              : _selectedCustomer!.currentDebt;
           final newDebt = currentDebt + remainingDebt;
 
           await txn.insert('customer_transactions', {

@@ -60,4 +60,15 @@ class Customer {
       notes: notes ?? this.notes,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Customer &&
+          runtimeType == other.runtimeType &&
+          ((id != null && other.id != null && id == other.id) ||
+              (id == null && other.id == null && name == other.name));
+
+  @override
+  int get hashCode => id?.hashCode ?? name.hashCode;
 }

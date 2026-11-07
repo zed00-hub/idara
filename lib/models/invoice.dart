@@ -16,6 +16,8 @@ class Invoice {
   final String? customerName;
   final String createdAt;
   final String? notes;
+  final bool isCancelled;
+  final String? cancelledAt;
   final List<CartItem> items;
 
   Invoice({
@@ -32,6 +34,8 @@ class Invoice {
     this.customerName,
     String? createdAt,
     this.notes,
+    this.isCancelled = false,
+    this.cancelledAt,
     this.items = const [],
   }) : createdAt = createdAt ?? DateTime.now().toIso8601String();
 
@@ -48,6 +52,8 @@ class Invoice {
       'change_given': changeGiven,
       'customer_id': customerId,
       'customer_name': customerName,
+      'is_cancelled': isCancelled ? 1 : 0,
+      'cancelled_at': cancelledAt,
       'created_at': createdAt,
       'notes': notes,
     };
@@ -73,9 +79,49 @@ class Invoice {
       changeGiven: (map['change_given'] as num?)?.toDouble() ?? 0.0,
       customerId: map['customer_id'] as int?,
       customerName: map['customer_name']?.toString(),
+      isCancelled: (map['is_cancelled'] == 1 || map['is_cancelled'] == true),
+      cancelledAt: map['cancelled_at']?.toString(),
       createdAt: map['created_at']?.toString() ?? DateTime.now().toIso8601String(),
       notes: map['notes']?.toString(),
       items: items,
+    );
+  }
+
+  Invoice copyWith({
+    int? id,
+    String? invoiceNumber,
+    double? subtotal,
+    double? discount,
+    double? totalAmount,
+    PaymentType? paymentType,
+    double? paidAmount,
+    double? remainingDebt,
+    double? changeGiven,
+    int? customerId,
+    String? customerName,
+    String? createdAt,
+    String? notes,
+    bool? isCancelled,
+    String? cancelledAt,
+    List<CartItem>? items,
+  }) {
+    return Invoice(
+      id: id ?? this.id,
+      invoiceNumber: invoiceNumber ?? this.invoiceNumber,
+      subtotal: subtotal ?? this.subtotal,
+      discount: discount ?? this.discount,
+      totalAmount: totalAmount ?? this.totalAmount,
+      paymentType: paymentType ?? this.paymentType,
+      paidAmount: paidAmount ?? this.paidAmount,
+      remainingDebt: remainingDebt ?? this.remainingDebt,
+      changeGiven: changeGiven ?? this.changeGiven,
+      customerId: customerId ?? this.customerId,
+      customerName: customerName ?? this.customerName,
+      createdAt: createdAt ?? this.createdAt,
+      notes: notes ?? this.notes,
+      isCancelled: isCancelled ?? this.isCancelled,
+      cancelledAt: cancelledAt ?? this.cancelledAt,
+      items: items ?? this.items,
     );
   }
 }

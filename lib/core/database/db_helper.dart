@@ -52,6 +52,12 @@ class DBHelper {
         try {
           await db.execute('ALTER TABLE supplier_invoices ADD COLUMN image_path TEXT');
         } catch (_) {}
+        try {
+          await db.execute('ALTER TABLE invoices ADD COLUMN is_cancelled INTEGER DEFAULT 0');
+        } catch (_) {}
+        try {
+          await db.execute('ALTER TABLE invoices ADD COLUMN cancelled_at TEXT');
+        } catch (_) {}
       },
     );
   }
@@ -121,6 +127,8 @@ class DBHelper {
         customer_id INTEGER,
         customer_name TEXT,
         notes TEXT,
+        is_cancelled INTEGER DEFAULT 0,
+        cancelled_at TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (customer_id) REFERENCES customers(id)
       )
