@@ -253,7 +253,7 @@ class _FinancialReportsScreenState extends State<FinancialReportsScreen> {
                         Expanded(
                           child: _buildMetricCard(
                             title: 'صافي الأرباح التقديرية',
-                            value: CurrencyFormatter.format(z.estimatedProfit),
+                            value: CurrencyFormatter.format(z.netProfit),
                             icon: Icons.trending_up,
                             color: AppColors.success,
                           ),
@@ -266,7 +266,7 @@ class _FinancialReportsScreenState extends State<FinancialReportsScreen> {
                         Expanded(
                           child: _buildMetricCard(
                             title: 'المحصل نقداً بالدرج',
-                            value: CurrencyFormatter.format(z.totalCashRevenue),
+                            value: CurrencyFormatter.format(z.cashSales),
                             icon: Icons.account_balance_wallet_outlined,
                             color: AppColors.accentDark,
                           ),
@@ -275,7 +275,7 @@ class _FinancialReportsScreenState extends State<FinancialReportsScreen> {
                         Expanded(
                           child: _buildMetricCard(
                             title: 'مبيعات الكريدي (ديون)',
-                            value: CurrencyFormatter.format(z.totalCreditSales),
+                            value: CurrencyFormatter.format(z.creditSales),
                             icon: Icons.hourglass_bottom,
                             color: AppColors.creditColor,
                           ),

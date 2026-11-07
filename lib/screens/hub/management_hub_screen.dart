@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/backup_service.dart';
 import '../../providers/app_settings_provider.dart';
-import '../../providers/financial_report_provider.dart';
 import '../reports/financial_reports_screen.dart';
 import '../settings/settings_screen.dart';
 import '../suppliers/suppliers_screen.dart';
@@ -72,7 +71,7 @@ class ManagementHubScreen extends StatelessWidget {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                settings.phone.isNotEmpty ? settings.phone : 'تطبيق نظمها لإدارة نقاط البيع',
+                                settings.storePhone.isNotEmpty ? settings.storePhone : 'تطبيق نظمها لإدارة نقاط البيع',
                                 style: TextStyle(
                                   color: Colors.white.withOpacity(0.85),
                                   fontSize: 12,

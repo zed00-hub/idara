@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
-import '../../core/services/print_service.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../models/customer.dart';
 import '../../providers/customer_debt_provider.dart';
@@ -68,7 +67,7 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
                   phone: phoneCtrl.text.trim(),
                   initialDebt: double.tryParse(debtCtrl.text.trim()) ?? 0.0,
                 );
-                Navigator.of(ctx).pop();
+                if (mounted) Navigator.of(ctx).pop();
               }
             },
             child: const Text('إضافة'),
@@ -131,16 +130,18 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
               if (amt > 0) {
                 await debtProv.recordPayment(
                   customerId: customer.id!,
-                  amountPaid: amt,
+                  paymentAmount: amt,
                   notes: notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim(),
                 );
-                Navigator.of(ctx).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('✅ تم تسجيل الدفعة وتحديث رصيد الزبون'),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
+                if (mounted) {
+                  Navigator.of(ctx).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('✅ تم تسجيل الدفعة وتحديث رصيد الزبون'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
               }
             },
             child: const Text('تأكيد القبض'),
@@ -152,7 +153,7 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
 
   void _showStatementModal(Customer customer) async {
     final debtProv = Provider.of<CustomerDebtProvider>(context, listen: false);
-    final history = await debtProv.getCustomerHistory(customer.id!);
+    final history = await debtProv.getCustomerTransactions(customer.id!);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (!mounted) return;
@@ -188,8 +189,8 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(customer.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                      if (customer.phone.isNotEmpty)
-                        Text(customer.phone, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                      if (customer.phone != null && customer.phone!.isNotEmpty)
+                        Text(customer.phone!, style: const TextStyle(fontSize: 12, color: Colors.grey)),
                     ],
                   ),
                   Container(
@@ -219,10 +220,7 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: () {
-                        PrintService.shareCustomerDebtReminder(
-                          customer: customer,
-                          history: history,
-                        );
+                        CustomerDebtProvider.sendDebtReminderWhatsApp(customer);
                       },
                       icon: const Icon(Icons.share, size: 18),
                       label: const Text('كشف واتساب'),
@@ -241,7 +239,7 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
                         separatorBuilder: (_, __) => const Divider(height: 1),
                         itemBuilder: (ctx, i) {
                           final tx = history[i];
-                          final isPayment = tx['type'] == 'payment';
+                          final isPayment = tx['type'] == 'debt_payment' || tx['type'] == 'payment';
                           final date = DateTime.tryParse(tx['created_at'] ?? '') ?? DateTime.now();
 
                           return ListTile(
@@ -345,7 +343,7 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
                       const Text('إجمالي الديون المعلقة في السوق', style: TextStyle(fontSize: 12, color: Colors.white70)),
                       const SizedBox(height: 4),
                       Text(
-                        CurrencyFormatter.format(debtProv.totalOutstandingDebt),
+                        CurrencyFormatter.format(debtProv.totalDebts),
                         style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
                       ),
                     ],
@@ -375,7 +373,7 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
                 hintText: 'بحث باسم الزبون أو الهاتف...',
                 prefixIcon: Icon(Icons.search, color: AppColors.creditColor),
               ),
-              onChanged: (val) => debtProv.searchCustomers(val),
+              onChanged: (val) => debtProv.loadCustomers(query: val),
             ),
           ),
           const SizedBox(height: 6),
@@ -420,7 +418,7 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
                               ),
                               title: Text(cust.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                               subtitle: Text(
-                                cust.phone.isNotEmpty ? cust.phone : 'بدون هاتف',
+                                (cust.phone != null && cust.phone!.isNotEmpty) ? cust.phone! : 'بدون هاتف',
                                 style: const TextStyle(fontSize: 12, color: Colors.grey),
                               ),
                               trailing: Column(
