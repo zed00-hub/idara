@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
@@ -17,41 +18,6 @@ class BarcodeScannerScreen extends StatefulWidget {
   });
 
   static Future<Product?> open(BuildContext context, {bool isMultiScan = false}) async {
-    // 1. Request Camera Permission explicitly
-    final status = await Permission.camera.request();
-    if (!status.isGranted) {
-      if (context.mounted) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            title: const Row(
-              children: [
-                Icon(Icons.camera_alt, color: AppColors.primaryIndigo),
-                SizedBox(width: 8),
-                Text('إذن الكاميرا مطلوب'),
-              ],
-            ),
-            content: const Text(
-              'يحتاج تطبيق نظمها إلى إذن الكاميرا لمسح باركود المنتجات وتصوير فواتير الموردين.\nيرجى منح الإذن للمتابعة.',
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('إلغاء')),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                  openAppSettings();
-                },
-                child: const Text('فتح إعدادات الهاتف'),
-              ),
-            ],
-          ),
-        );
-      }
-      return null;
-    }
-
-    if (!context.mounted) return null;
     return await Navigator.of(context).push<Product>(
       MaterialPageRoute(
         builder: (_) => BarcodeScannerScreen(isMultiScanInitial: isMultiScan),
@@ -76,8 +42,13 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
   String? _lastScannedText;
   final TextEditingController _manualBarcodeCtrl = TextEditingController();
 
+  bool _isStartingCamera = false;
+  bool _hasPermissionError = false;
+  String? _errorMessage;
+
   MobileScannerController _createController() {
     return MobileScannerController(
+      autoStart: false,
       detectionSpeed: DetectionSpeed.noDuplicates,
       facing: CameraFacing.back,
       torchEnabled: false,
@@ -100,21 +71,65 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     _laserAnimation = Tween<double>(begin: 0.1, end: 0.9).animate(
       CurvedAnimation(parent: _laserAnimController, curve: Curves.easeInOut),
     );
+
+    // Settle UI route transition before accessing hardware camera
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startCameraSafely();
+    });
+  }
+
+  Future<void> _startCameraSafely() async {
+    if (_isStartingCamera || !mounted) return;
+    _isStartingCamera = true;
+
+    try {
+      // 1. Request/verify permission explicitly
+      var status = await Permission.camera.status;
+      if (!status.isGranted) {
+        status = await Permission.camera.request();
+      }
+
+      if (!status.isGranted) {
+        if (mounted) {
+          setState(() {
+            _hasPermissionError = true;
+            _errorMessage = 'يرجى منح إذن استخدام الكاميرا لمسح الباركود';
+          });
+        }
+        return;
+      }
+
+      // Small delay after Android permission dialog to ensure window focus
+      await Future.delayed(const Duration(milliseconds: 250));
+      if (!mounted) return;
+
+      await _controller.start();
+
+      if (mounted) {
+        setState(() {
+          _hasPermissionError = false;
+          _errorMessage = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'تعذر بدء الكاميرا المباشرة: $e';
+        });
+      }
+    } finally {
+      _isStartingCamera = false;
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!_controller.value.isInitialized) return;
-    switch (state) {
-      case AppLifecycleState.resumed:
-        _controller.start();
-        break;
-      case AppLifecycleState.inactive:
-      case AppLifecycleState.paused:
-      case AppLifecycleState.detached:
-      case AppLifecycleState.hidden:
+    if (state == AppLifecycleState.resumed) {
+      _startCameraSafely();
+    } else if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+      try {
         _controller.stop();
-        break;
+      } catch (_) {}
     }
   }
 
@@ -177,6 +192,35 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     }
   }
 
+  void _scanFromSystemCamera() async {
+    try {
+      final picker = ImagePicker();
+      final photo = await picker.pickImage(source: ImageSource.camera, maxWidth: 1600, maxHeight: 1600);
+      if (photo != null) {
+        final capture = await _controller.analyzeImage(photo.path);
+        if (capture == null || capture.barcodes.isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('⚠️ لم يتم العثور على باركود واضح في الصورة. يرجى المحاولة بزاوية أوضح'),
+                backgroundColor: AppColors.danger,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        } else {
+          _onDetect(capture);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('خطأ في كاميرا النظام: $e'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -198,25 +242,28 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                       const Icon(Icons.camera_alt_outlined, color: Colors.amber, size: 54),
                       const SizedBox(height: 14),
                       Text(
-                        'تعذر تشغيل الكاميرا (${error.errorCode.name})\n'
-                        'يرجى التأكد من إعطاء إذن الكاميرا للتطبيق.',
-                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        'تعذر بدء الكاميرا المباشرة (${error.errorCode.name})\n'
+                        '${error.errorDetails?.message ?? "قد تكون الكاميرا مقفلة بواسطة النظام أو بحاجة لإذن"}',
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 18),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 10,
+                        runSpacing: 10,
                         children: [
                           ElevatedButton.icon(
-                            onPressed: () async {
-                              await _controller.stop();
-                              await _controller.start();
-                              if (mounted) setState(() {});
-                            },
+                            onPressed: () => _startCameraSafely(),
                             icon: const Icon(Icons.refresh),
                             label: const Text('إعادة المحاولة'),
                           ),
-                          const SizedBox(width: 10),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(backgroundColor: AppColors.accent),
+                            onPressed: _scanFromSystemCamera,
+                            icon: const Icon(Icons.photo_camera),
+                            label: const Text('كاميرا النظام 📸'),
+                          ),
                           OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
                               foregroundColor: Colors.white,
@@ -399,6 +446,18 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                             await _controller.switchCamera();
                             setState(() => _isFrontCamera = !_isFrontCamera);
                           },
+                        ),
+                        IconButton(
+                          icon: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.55),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.photo_camera, color: AppColors.accent, size: 20),
+                          ),
+                          tooltip: 'التقاط صورة بكاميرا النظام',
+                          onPressed: _scanFromSystemCamera,
                         ),
                       ],
                     ),
