@@ -2,12 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../core/constants/app_colors.dart';
 import 'debts/customer_debts_screen.dart';
+import 'hub/management_hub_screen.dart';
 import 'inventory/inventory_screen.dart';
 import 'invoices/invoice_history_screen.dart';
 import 'pos/pos_screen.dart';
-import 'reports/financial_reports_screen.dart';
-import 'settings/settings_screen.dart';
-import 'suppliers/suppliers_screen.dart';
 
 class MainNavigationScreen extends StatefulWidget {
   const MainNavigationScreen({super.key});
@@ -25,9 +23,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     InventoryScreen(),
     InvoiceHistoryScreen(),
     CustomerDebtsScreen(),
-    SuppliersScreen(),
-    FinancialReportsScreen(),
-    SettingsScreen(),
+    ManagementHubScreen(),
   ];
 
   Future<bool> _onWillPop() async {
@@ -42,10 +38,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     if (_lastBackPressTime == null || now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
       _lastBackPressTime = now;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('اضغط رجوع مرة أخرى للخروج من التطبيق'),
-          duration: Duration(seconds: 2),
+        SnackBar(
+          content: const Text('اضغط رجوع مرة أخرى للخروج من التطبيق'),
+          duration: const Duration(seconds: 2),
           behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
       return false;
@@ -56,6 +53,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return PopScope(
       canPop: false,
       onPopInvoked: (didPop) async {
@@ -70,48 +70,60 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           index: _currentIndex,
           children: _screens,
         ),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: _currentIndex,
-          onDestinationSelected: (index) {
-            setState(() => _currentIndex = index);
-          },
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.point_of_sale_outlined),
-              selectedIcon: Icon(Icons.point_of_sale, color: AppColors.primary),
-              label: 'الكاشير',
+        bottomNavigationBar: Container(
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkSurface : Colors.white,
+            border: Border(
+              top: BorderSide(
+                color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                width: 0.8,
+              ),
             ),
-            NavigationDestination(
-              icon: Icon(Icons.inventory_2_outlined),
-              selectedIcon: Icon(Icons.inventory_2, color: AppColors.primary),
-              label: 'المخزون',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.receipt_long_outlined),
-              selectedIcon: Icon(Icons.receipt_long, color: AppColors.primary),
-              label: 'الفواتير',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.people_alt_outlined),
-              selectedIcon: Icon(Icons.people_alt, color: AppColors.primary),
-              label: 'الكريدي',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.local_shipping_outlined),
-              selectedIcon: Icon(Icons.local_shipping, color: AppColors.primary),
-              label: 'الموردين',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.analytics_outlined),
-              selectedIcon: Icon(Icons.analytics, color: AppColors.primary),
-              label: 'التقارير',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.settings_outlined),
-              selectedIcon: Icon(Icons.settings, color: AppColors.primary),
-              label: 'الإعدادات',
-            ),
-          ],
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 10,
+                offset: const Offset(0, -2),
+              ),
+            ],
+          ),
+          child: NavigationBar(
+            height: 68,
+            elevation: 0,
+            backgroundColor: Colors.transparent,
+            indicatorColor: AppColors.primaryIndigo.withOpacity(0.12),
+            selectedIndex: _currentIndex,
+            onDestinationSelected: (index) {
+              setState(() => _currentIndex = index);
+            },
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.point_of_sale_outlined),
+                selectedIcon: Icon(Icons.point_of_sale, color: AppColors.primaryIndigo),
+                label: 'الكاشير',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.inventory_2_outlined),
+                selectedIcon: Icon(Icons.inventory_2, color: AppColors.primaryIndigo),
+                label: 'المخزون',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.receipt_long_outlined),
+                selectedIcon: Icon(Icons.receipt_long, color: AppColors.primaryIndigo),
+                label: 'الفواتير',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.people_alt_outlined),
+                selectedIcon: Icon(Icons.people_alt, color: AppColors.primaryIndigo),
+                label: 'الكريدي',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.grid_view_outlined),
+                selectedIcon: Icon(Icons.grid_view, color: AppColors.primaryIndigo),
+                label: 'المزيد',
+              ),
+            ],
+          ),
         ),
       ),
     );

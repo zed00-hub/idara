@@ -65,8 +65,9 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
       if (_selectedCustomer == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('⚠️ يجب اختيار زبون مسجل لحفظ الدين (الكريدي)!'),
+            content: Text('⚠️ يرجى اختيار زبون مسجل لحفظ الدين (الكريدي)!'),
             backgroundColor: AppColors.danger,
+            behavior: SnackBarBehavior.floating,
           ),
         );
         return;
@@ -81,8 +82,9 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
       if (paidAmount < netTotal) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('⚠️ المبلغ المدفوع أقل من الإجمالي في الدفع النقدي!'),
+            content: Text('⚠️ المبلغ المستلم أقل من الإجمالي!'),
             backgroundColor: AppColors.danger,
+            behavior: SnackBarBehavior.floating,
           ),
         );
         return;
@@ -131,6 +133,7 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('إضافة زبون سريع'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -140,7 +143,7 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
               autofocus: true,
               decoration: const InputDecoration(labelText: 'اسم الزبون *'),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             TextField(
               controller: phoneCtrl,
               keyboardType: TextInputType.phone,
@@ -175,6 +178,8 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
   Widget build(BuildContext context) {
     final pos = Provider.of<POSProvider>(context);
     final debtProv = Provider.of<CustomerDebtProvider>(context);
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final netTotal = pos.netTotal;
 
     final roundedChange = _paymentType == PaymentType.cash
@@ -188,10 +193,11 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
             : 0.0;
 
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      backgroundColor: isDark ? AppColors.darkSurface : Colors.white,
       child: Container(
         width: 480,
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(22),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -201,9 +207,22 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'إتمام عملية البيع',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryIndigo.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.payment, color: AppColors.primaryIndigo, size: 20),
+                      ),
+                      const SizedBox(width: 10),
+                      const Text(
+                        'إتمام عملية البيع',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                    ],
                   ),
                   IconButton(
                     icon: const Icon(Icons.close),
@@ -211,82 +230,78 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                   ),
                 ],
               ),
-              const Divider(),
+              const SizedBox(height: 14),
 
               // Total banner
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(12),
+                  gradient: AppColors.primaryGradient,
+                  borderRadius: BorderRadius.circular(16),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('المبلغ المطلوب:', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                    const Text('المبلغ الإجمالي المستحق:', style: TextStyle(fontSize: 14, color: Colors.white70)),
                     Text(
                       CurrencyFormatter.format(netTotal),
-                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primary),
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 16),
 
-              // Payment Type Selector (Cash, Credit, Partial)
-              Row(
-                children: [
-                  Expanded(
-                    child: ChoiceChip(
-                      label: const Center(child: Text('نقدي 💵')),
-                      selected: _paymentType == PaymentType.cash,
-                      selectedColor: AppColors.cashColor.withOpacity(0.2),
-                      onSelected: (val) {
-                        if (val) {
-                          setState(() {
-                            _paymentType = PaymentType.cash;
-                            _customPaid = netTotal;
-                            _paidController.text = netTotal.round().toString();
-                          });
-                        }
+              // Payment Type Tabs (Cash, Credit, Partial)
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: [
+                    _buildPaymentTab(
+                      type: PaymentType.cash,
+                      label: 'نقداً 💵',
+                      activeColor: AppColors.cashColor,
+                      isSelected: _paymentType == PaymentType.cash,
+                      onTap: () {
+                        setState(() {
+                          _paymentType = PaymentType.cash;
+                          _customPaid = netTotal;
+                          _paidController.text = netTotal.round().toString();
+                        });
                       },
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ChoiceChip(
-                      label: const Center(child: Text('كريدي ⏳')),
-                      selected: _paymentType == PaymentType.credit,
-                      selectedColor: AppColors.creditColor.withOpacity(0.2),
-                      onSelected: (val) {
-                        if (val) {
-                          setState(() {
-                            _paymentType = PaymentType.credit;
-                            _customPaid = 0;
-                            _paidController.text = '0';
-                          });
-                        }
+                    _buildPaymentTab(
+                      type: PaymentType.credit,
+                      label: 'كريدي ⏳',
+                      activeColor: AppColors.creditColor,
+                      isSelected: _paymentType == PaymentType.credit,
+                      onTap: () {
+                        setState(() {
+                          _paymentType = PaymentType.credit;
+                          _customPaid = 0;
+                          _paidController.text = '0';
+                        });
                       },
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ChoiceChip(
-                      label: const Center(child: Text('جزئي 💳')),
-                      selected: _paymentType == PaymentType.partial,
-                      selectedColor: AppColors.partialColor.withOpacity(0.2),
-                      onSelected: (val) {
-                        if (val) {
-                          setState(() {
-                            _paymentType = PaymentType.partial;
-                            _customPaid = (netTotal / 2).roundToDouble();
-                            _paidController.text = _customPaid.round().toString();
-                          });
-                        }
+                    _buildPaymentTab(
+                      type: PaymentType.partial,
+                      label: 'جزئي 💳',
+                      activeColor: AppColors.partialColor,
+                      isSelected: _paymentType == PaymentType.partial,
+                      onTap: () {
+                        setState(() {
+                          _paymentType = PaymentType.partial;
+                          _customPaid = (netTotal / 2).roundToDouble();
+                          _paidController.text = _customPaid.round().toString();
+                        });
                       },
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               const SizedBox(height: 16),
 
@@ -298,7 +313,7 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                       child: DropdownButtonFormField<Customer>(
                         value: _selectedCustomer,
                         decoration: InputDecoration(
-                          labelText: _paymentType != PaymentType.cash ? 'الزبون (إجباري للكريدي) *' : 'الزبون (اختياري)',
+                          labelText: _paymentType != PaymentType.cash ? 'الزبون (إجباري للدين) *' : 'الزبون (اختياري)',
                           prefixIcon: const Icon(Icons.person),
                         ),
                         items: debtProv.customers.map((c) {
@@ -310,8 +325,9 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                         onChanged: (cust) => setState(() => _selectedCustomer = cust),
                       ),
                     ),
+                    const SizedBox(width: 6),
                     IconButton(
-                      icon: const Icon(Icons.person_add, color: AppColors.primary),
+                      icon: const Icon(Icons.person_add, color: AppColors.primaryIndigo),
                       tooltip: 'إضافة زبون جديد',
                       onPressed: _showQuickAddCustomerDialog,
                     ),
@@ -335,9 +351,9 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                     });
                   },
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
 
-                // Fast Cash Buttons (Algerian Banknotes: 500, 1000, 2000, Exact)
+                // Fast Cash Presets (Exact, 500, 1000, 2000, 5000)
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
@@ -345,81 +361,170 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                     ActionChip(
                       label: Text('تماماً (${netTotal.round()} دج)'),
                       onPressed: () => _onQuickCashSelected(netTotal),
+                      backgroundColor: const Color(0xFFF1F5F9),
                     ),
                     if (netTotal < 500)
-                      ActionChip(label: const Text('500 دج'), onPressed: () => _onQuickCashSelected(500)),
+                      ActionChip(
+                        label: const Text('500 دج'),
+                        onPressed: () => _onQuickCashSelected(500),
+                        backgroundColor: const Color(0xFFF1F5F9),
+                      ),
                     if (netTotal < 1000)
-                      ActionChip(label: const Text('1,000 دج'), onPressed: () => _onQuickCashSelected(1000)),
+                      ActionChip(
+                        label: const Text('1000 دج'),
+                        onPressed: () => _onQuickCashSelected(1000),
+                        backgroundColor: const Color(0xFFF1F5F9),
+                      ),
                     if (netTotal < 2000)
-                      ActionChip(label: const Text('2,000 دج'), onPressed: () => _onQuickCashSelected(2000)),
-                    if (netTotal < 5000)
-                      ActionChip(label: const Text('5,000 دج'), onPressed: () => _onQuickCashSelected(5000)),
+                      ActionChip(
+                        label: const Text('2000 دج'),
+                        onPressed: () => _onQuickCashSelected(2000),
+                        backgroundColor: const Color(0xFFF1F5F9),
+                      ),
+                    ActionChip(
+                      label: const Text('5000 دج'),
+                      onPressed: () => _onQuickCashSelected(5000),
+                      backgroundColor: const Color(0xFFF1F5F9),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 12),
-              ],
+                const SizedBox(height: 14),
 
-              // Change Due / Remaining Debt Calculation Display
-              if (_paymentType == PaymentType.cash && _customPaid >= netTotal) ...[
+                // Live Change Card with Algerian 5 DZD Rounding Rule!
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: AppColors.accent.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.accent.withOpacity(0.3)),
+                    color: roundedChange > 0
+                        ? AppColors.accentLight.withOpacity(0.5)
+                        : (isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC)),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: roundedChange > 0 ? AppColors.accent : Colors.grey.shade300,
+                      width: 1.2,
+                    ),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('الفكة المرجعة (مقربة 5 دج):', style: TextStyle(fontWeight: FontWeight.bold)),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('الفكة المرجعة للزبون:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          Text(
+                            'مقربة لأقرب 5 دج تلقائياً (العملة الجزائرية)',
+                            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                          ),
+                        ],
+                      ),
                       Text(
-                        '${CurrencyFormatter.format(roundedChange)} (${roundedChange} دج)',
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.accentDark),
+                        '${roundedChange.round()} دج',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: roundedChange > 0 ? AppColors.accentDark : Colors.grey,
+                        ),
                       ),
                     ],
                   ),
                 ),
               ],
 
+              // Remaining Debt Preview (if credit or partial)
               if (remainingDebt > 0) ...[
+                const SizedBox(height: 12),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
                     color: AppColors.creditColor.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.creditColor.withOpacity(0.3)),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppColors.creditColor, width: 1.2),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('الدين المتبقي للكريدي:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const Text('المبلغ المسجل كدين (كريدي):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                       Text(
                         CurrencyFormatter.format(remainingDebt),
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.creditColor),
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.creditColor),
                       ),
                     ],
                   ),
                 ),
               ],
 
-              const SizedBox(height: 20),
-
-              // Confirm Button
-              SizedBox(
-                height: 48,
-                child: ElevatedButton(
-                  onPressed: _confirmCheckout,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: const Text(
-                    'تأكيد وحفظ الفاتورة ✓',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
+              const SizedBox(height: 14),
+              // Notes
+              TextField(
+                controller: _notesController,
+                decoration: const InputDecoration(
+                  labelText: 'ملاحظة على الفاتورة (اختياري)',
+                  prefixIcon: Icon(Icons.note_alt_outlined),
                 ),
               ),
+              const SizedBox(height: 20),
+
+              // Action Buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('إلغاء'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: ElevatedButton.icon(
+                      onPressed: _confirmCheckout,
+                      icon: const Icon(Icons.check_circle_outline, size: 20),
+                      label: const Text('تأكيد البيع وطباعة الوصل', style: TextStyle(fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.accentDark,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaymentTab({
+    required PaymentType type,
+    required String label,
+    required Color activeColor,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected ? activeColor : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(color: activeColor.withOpacity(0.3), blurRadius: 6, offset: const Offset(0, 2)),
+                  ]
+                : null,
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: isSelected ? Colors.white : Colors.grey.shade600,
+              ),
+            ),
           ),
         ),
       ),

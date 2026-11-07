@@ -26,24 +26,35 @@ class InvoiceSuccessSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return Container(
       decoration: BoxDecoration(
-        color: theme.scaffoldBackgroundColor,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        color: isDark ? AppColors.darkSurface : Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Success Icon
+          Container(
+            width: 44,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade400,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Success Animated Icon
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: AppColors.success.withOpacity(0.12),
+              color: AppColors.accent.withOpacity(0.12),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.check_circle, color: AppColors.success, size: 52),
+            child: const Icon(Icons.check_circle, color: AppColors.accent, size: 54),
           ),
           const SizedBox(height: 12),
 
@@ -56,43 +67,43 @@ class InvoiceSuccessSheet extends StatelessWidget {
             'رقم الفاتورة: ${invoice.invoiceNumber}',
             style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
 
           // Total card
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
             decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.06),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+              gradient: AppColors.primaryGradient,
+              borderRadius: BorderRadius.circular(16),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('المبلغ الإجمالي:', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                const Text('المبلغ الإجمالي:', style: TextStyle(fontSize: 14, color: Colors.white70)),
                 Text(
                   CurrencyFormatter.format(invoice.totalAmount),
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primary),
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
               ],
             ),
           ),
 
           if (invoice.changeGiven > 0) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: AppColors.accent.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(10),
+                color: AppColors.accentLight.withOpacity(0.5),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.accent, width: 1.2),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('الفكة المرجعة للزبون (مقربة 5 دج):', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Text('الفكة المرجعة للزبون (مقربة 5 دج):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                   Text(
                     CurrencyFormatter.format(invoice.changeGiven),
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.accentDark),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.accentDark),
                   ),
                 ],
               ),
@@ -100,20 +111,21 @@ class InvoiceSuccessSheet extends StatelessWidget {
           ],
 
           if (invoice.remainingDebt > 0) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: AppColors.warning.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(10),
+                color: AppColors.creditColor.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.creditColor, width: 1.2),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('مسجل كدين على: ${invoice.customerName ?? "زبون"}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text('المسجل كدين على (${invoice.customerName ?? 'الزبون'}):', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                   Text(
                     CurrencyFormatter.format(invoice.remainingDebt),
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.warning),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.creditColor),
                   ),
                 ],
               ),
@@ -122,50 +134,52 @@ class InvoiceSuccessSheet extends StatelessWidget {
 
           const SizedBox(height: 24),
 
-          // Action buttons: Thermal Print, WhatsApp, New Sale
+          // Print & Share Actions
           Row(
             children: [
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: () => PrintService.printReceipt(invoice),
-                  icon: const Icon(Icons.print),
-                  label: const Text('طباعة حرارية'),
+                  onPressed: () async {
+                    await PrintService.printReceipt(invoice);
+                  },
+                  icon: const Icon(Icons.print, size: 20),
+                  label: const Text('طباعة الوصل'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    backgroundColor: AppColors.primaryIndigo,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   ),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () => PrintService.shareInvoiceViaWhatsApp(invoice),
-                  icon: const Icon(Icons.share),
-                  label: const Text('واتساب'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF25D366),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    await PrintService.shareInvoicePdf(invoice);
+                  },
+                  icon: const Icon(Icons.share, size: 20),
+                  label: const Text('واتساب PDF'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
 
+          // New Sale button
           SizedBox(
             width: double.infinity,
-            child: OutlinedButton.icon(
+            child: TextButton.icon(
               onPressed: () {
                 Navigator.of(context).pop();
                 onNewSale();
               },
-              icon: const Icon(Icons.add_shopping_cart),
-              label: const Text('عملية بيع جديدة'),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 13),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
+              icon: const Icon(Icons.add_shopping_cart, size: 18),
+              label: const Text('بدء بيع جديد', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
             ),
           ),
         ],

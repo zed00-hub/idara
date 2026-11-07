@@ -17,6 +17,7 @@ class InvoiceHistoryScreen extends StatefulWidget {
 class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
   List<Invoice> _invoices = [];
   bool _isLoading = true;
+  String _filter = 'all'; // all, cash, credit, today
 
   @override
   void initState() {
@@ -28,7 +29,7 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
     setState(() => _isLoading = true);
     final db = await DBHelper.instance.database;
 
-    final invoiceMaps = await db.query('invoices', orderBy: 'id DESC', limit: 100);
+    final invoiceMaps = await db.query('invoices', orderBy: 'id DESC', limit: 120);
     final List<Invoice> list = [];
 
     for (var invMap in invoiceMaps) {
@@ -47,24 +48,76 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
     });
   }
 
+  List<Invoice> get _filteredInvoices {
+    final now = DateTime.now();
+    final todayStr = DateFormat('yyyy-MM-dd').format(now);
+
+    switch (_filter) {
+      case 'today':
+        return _invoices.where((inv) => inv.createdAt.startsWith(todayStr)).toList();
+      case 'cash':
+        return _invoices.where((inv) => inv.paymentType == PaymentType.cash).toList();
+      case 'credit':
+        return _invoices.where((inv) => inv.paymentType == PaymentType.credit || inv.paymentType == PaymentType.partial).toList();
+      default:
+        return _invoices;
+    }
+  }
+
+  double get _todayTotalRevenue {
+    final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    return _invoices
+        .where((inv) => inv.createdAt.startsWith(todayStr))
+        .fold(0.0, (sum, inv) => sum + inv.paidAmount);
+  }
+
   void _showInvoiceDetails(Invoice invoice) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      backgroundColor: Colors.transparent,
       builder: (ctx) {
         return Container(
-          height: MediaQuery.of(context).size.height * 0.75,
-          padding: const EdgeInsets.all(16),
+          height: MediaQuery.of(context).size.height * 0.78,
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkSurface : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Container(
+                width: 44,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'تفاصيل ${invoice.invoiceNumber}',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryIndigo.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.receipt_long, color: AppColors.primaryIndigo, size: 20),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        'فاتورة ${invoice.invoiceNumber}',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                    ],
                   ),
                   IconButton(
                     icon: const Icon(Icons.close),
@@ -72,57 +125,82 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
                   ),
                 ],
               ),
-              const Divider(),
+              const Divider(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('التاريخ: ${DateFormat('yyyy/MM/dd HH:mm').format(DateTime.tryParse(invoice.createdAt) ?? DateTime.now())}'),
-                  if (invoice.customerName != null) Text('الزبون: ${invoice.customerName}'),
+                  Text(
+                    'التاريخ: ${DateFormat('yyyy/MM/dd HH:mm').format(DateTime.tryParse(invoice.createdAt) ?? DateTime.now())}',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  if (invoice.customerName != null)
+                    Text('الزبون: ${invoice.customerName}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Expanded(
-                child: ListView.builder(
+                child: ListView.separated(
                   itemCount: invoice.items.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (ctx, i) {
                     final item = invoice.items[i];
                     return ListTile(
+                      contentPadding: EdgeInsets.zero,
                       dense: true,
-                      title: Text(item.product.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text('${item.quantity} × ${item.unitPrice.round()} دج'),
-                      trailing: Text(CurrencyFormatter.format(item.subtotal), style: const TextStyle(fontWeight: FontWeight.bold)),
+                      title: Text(item.product.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      subtitle: Text('${item.quantity.toInt()} × ${item.unitPrice.round()} دج (${item.priceType == PriceType.wholesale ? 'جملة' : 'تجزئة'})'),
+                      trailing: Text(CurrencyFormatter.format(item.subtotal), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                     );
                   },
                 ),
               ),
-              const Divider(),
+              const Divider(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('المجموع الإجمالي:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  Text(CurrencyFormatter.format(invoice.totalAmount), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                  const Text('المبلغ الإجمالي:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  Text(
+                    CurrencyFormatter.format(invoice.totalAmount),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: AppColors.primaryIndigo),
+                  ),
                 ],
               ),
+              if (invoice.remainingDebt > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('المسجل كدين:', style: TextStyle(color: AppColors.creditColor, fontWeight: FontWeight.bold, fontSize: 13)),
+                      Text(
+                        CurrencyFormatter.format(invoice.remainingDebt),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.creditColor),
+                      ),
+                    ],
+                  ),
+                ),
               const SizedBox(height: 16),
               Row(
                 children: [
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: () => PrintService.printReceipt(invoice),
-                      icon: const Icon(Icons.print),
-                      label: const Text('طباعة'),
+                      icon: const Icon(Icons.print, size: 18),
+                      label: const Text('طباعة حرارية'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryIndigo,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => PrintService.shareInvoiceViaWhatsApp(invoice),
-                      icon: const Icon(Icons.share),
-                      label: const Text('واتساب'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF25D366),
-                        foregroundColor: Colors.white,
-                      ),
+                    child: OutlinedButton.icon(
+                      onPressed: () => PrintService.shareInvoicePdf(invoice),
+                      icon: const Icon(Icons.share, size: 18),
+                      label: const Text('واتساب PDF'),
+                      style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12)),
                     ),
                   ),
                 ],
@@ -136,97 +214,217 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final filtered = _filteredInvoices;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('سجل الفواتير والمبيعات'),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: AppColors.primaryIndigo.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.receipt_long, color: AppColors.primaryIndigo, size: 20),
+            ),
+            const SizedBox(width: 10),
+            const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('سجل الفواتير والمبيعات', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text('أرشيف المبيعات والوصولات', style: TextStyle(fontSize: 11, color: Colors.grey)),
+              ],
+            ),
+          ],
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh, color: AppColors.primaryIndigo),
+            tooltip: 'تحديث',
             onPressed: _loadInvoices,
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _invoices.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+      body: Column(
+        children: [
+          // KPI Today's Summary Card
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              decoration: BoxDecoration(
+                gradient: AppColors.primaryGradient,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(color: AppColors.primaryIndigo.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 4)),
+                ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.receipt_long_outlined, size: 64, color: Colors.grey.shade400),
-                      const SizedBox(height: 12),
-                      const Text('لا توجد فواتير مسجلة بعد', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const Text('مبيعات اليوم المحصلة', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                      const SizedBox(height: 4),
+                      Text(
+                        CurrencyFormatter.format(_todayTotalRevenue),
+                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
                     ],
                   ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(8),
-                  itemCount: _invoices.length,
-                  itemBuilder: (context, i) {
-                    final inv = _invoices[i];
-                    return Card(
-                      child: ListTile(
-                        onTap: () => _showInvoiceDetails(inv),
-                        leading: CircleAvatar(
-                          backgroundColor: inv.paymentType == PaymentType.cash
-                              ? AppColors.cashColor.withOpacity(0.15)
-                              : inv.paymentType == PaymentType.credit
-                                  ? AppColors.creditColor.withOpacity(0.15)
-                                  : AppColors.partialColor.withOpacity(0.15),
-                          child: Icon(
-                            inv.paymentType == PaymentType.cash
-                                ? Icons.payments_outlined
-                                : inv.paymentType == PaymentType.credit
-                                    ? Icons.pending_actions
-                                    : Icons.pie_chart_outline,
-                            color: inv.paymentType == PaymentType.cash
-                                ? AppColors.cashColor
-                                : inv.paymentType == PaymentType.credit
-                                    ? AppColors.creditColor
-                                    : AppColors.partialColor,
-                          ),
-                        ),
-                        title: Row(
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '${_invoices.length} فاتورة',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Filters
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(
+              children: [
+                _buildFilterChip('الكل', 'all'),
+                const SizedBox(width: 6),
+                _buildFilterChip('اليوم 📅', 'today'),
+                const SizedBox(width: 6),
+                _buildFilterChip('نقدي 💵', 'cash'),
+                const SizedBox(width: 6),
+                _buildFilterChip('كريدي ⏳', 'credit'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+
+          // Invoices List
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : filtered.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text(inv.invoiceNumber, style: const TextStyle(fontWeight: FontWeight.bold)),
-                            const Spacer(),
-                            Text(
-                              CurrencyFormatter.format(inv.totalAmount),
-                              style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary),
-                            ),
+                            Icon(Icons.receipt_outlined, size: 54, color: Colors.grey.shade400),
+                            const SizedBox(height: 12),
+                            const Text('لا توجد فواتير مطابقة', style: TextStyle(fontWeight: FontWeight.bold)),
                           ],
                         ),
-                        subtitle: Row(
-                          children: [
-                            Text(DateFormat('MM/dd HH:mm').format(DateTime.tryParse(inv.createdAt) ?? DateTime.now())),
-                            if (inv.customerName != null) ...[
-                              const SizedBox(width: 8),
-                              Text('• ${inv.customerName}'),
-                            ],
-                            const Spacer(),
-                            Text(
-                              inv.paymentType == PaymentType.cash
-                                  ? 'نقدي'
-                                  : inv.paymentType == PaymentType.credit
-                                      ? 'كريدي'
-                                      : 'جزئي',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 11,
-                                color: inv.paymentType == PaymentType.cash
-                                    ? AppColors.cashColor
-                                    : inv.paymentType == PaymentType.credit
-                                        ? AppColors.creditColor
-                                        : AppColors.partialColor,
+                      )
+                    : ListView.builder(
+                        itemCount: filtered.length,
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        itemBuilder: (context, i) {
+                          final inv = filtered[i];
+                          final date = DateTime.tryParse(inv.createdAt) ?? DateTime.now();
+                          final isCredit = inv.paymentType == PaymentType.credit || inv.paymentType == PaymentType.partial;
+
+                          return Card(
+                            child: ListTile(
+                              onTap: () => _showInvoiceDetails(inv),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              leading: Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: (isCredit ? AppColors.creditColor : AppColors.cashColor).withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(
+                                  isCredit ? Icons.hourglass_top_outlined : Icons.payments_outlined,
+                                  color: isCredit ? AppColors.creditColor : AppColors.cashColor,
+                                  size: 22,
+                                ),
+                              ),
+                              title: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    inv.invoiceNumber,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                  ),
+                                  Text(
+                                    CurrencyFormatter.format(inv.totalAmount),
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.primaryIndigo),
+                                  ),
+                                ],
+                              ),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      '${DateFormat('MM/dd HH:mm').format(date)} • ${inv.items.length} صنف',
+                                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: (isCredit ? AppColors.creditColor : AppColors.cashColor).withOpacity(0.12),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        isCredit ? 'كريدي' : 'نقدي',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: isCredit ? AppColors.creditColor : AppColors.cashColor,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.print_outlined, size: 20, color: AppColors.primaryIndigo),
+                                onPressed: () => PrintService.printReceipt(inv),
                               ),
                             ),
-                          ],
-                        ),
-                        trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                          );
+                        },
                       ),
-                    );
-                  },
-                ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(String label, String value) {
+    final isSelected = _filter == value;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return InkWell(
+      onTap: () => setState(() => _filter = value),
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primaryIndigo : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9)),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            color: isSelected ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+          ),
+        ),
+      ),
     );
   }
 }

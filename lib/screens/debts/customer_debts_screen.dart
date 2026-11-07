@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/services/print_service.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../models/customer.dart';
 import '../../providers/customer_debt_provider.dart';
@@ -39,15 +40,22 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('إضافة زبون كريدي'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.person_add_alt_1, color: AppColors.primaryIndigo),
+            SizedBox(width: 8),
+            Text('إضافة زبون كريدي'),
+          ],
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: nameCtrl, autofocus: true, decoration: const InputDecoration(labelText: 'الاسم *')),
-            const SizedBox(height: 8),
+            TextField(controller: nameCtrl, autofocus: true, decoration: const InputDecoration(labelText: 'اسم الزبون *')),
+            const SizedBox(height: 10),
             TextField(controller: phoneCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'رقم الهاتف')),
-            const SizedBox(height: 8),
-            TextField(controller: debtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'رصيد دين سابق (دج)')),
+            const SizedBox(height: 10),
+            TextField(controller: debtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'رصيد دين سابق إن وجد (دج)')),
           ],
         ),
         actions: [
@@ -78,23 +86,40 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text('تسديد دين: ${customer.name}'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('إجمالي الدين الحالي: ${CurrencyFormatter.format(customer.currentDebt)}', style: const TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.creditColor.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('إجمالي الدين الحالي:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  Text(
+                    CurrencyFormatter.format(customer.currentDebt),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.creditColor),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
             TextField(
               controller: amountCtrl,
               autofocus: true,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'المبلغ المدفوع (دج) *', prefixIcon: Icon(Icons.payments)),
+              decoration: const InputDecoration(labelText: 'المبلغ المدفوع (دج) *', prefixIcon: Icon(Icons.payments_outlined)),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             TextField(
               controller: notesCtrl,
-              decoration: const InputDecoration(labelText: 'ملاحظة (اختياري)'),
+              decoration: const InputDecoration(labelText: 'ملاحظة (دفعة نقداً، تحويل...)'),
             ),
           ],
         ),
@@ -102,90 +127,149 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
           TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('إلغاء')),
           ElevatedButton(
             onPressed: () async {
-              final amount = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
-              if (amount > 0) {
+              final amt = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
+              if (amt > 0) {
                 await debtProv.recordPayment(
                   customerId: customer.id!,
-                  paymentAmount: amount,
+                  amountPaid: amt,
                   notes: notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim(),
                 );
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('تم تسجيل دفعة السداد بنجاح ✓')),
-                  );
-                }
                 Navigator.of(ctx).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('✅ تم تسجيل الدفعة وتحديث رصيد الزبون'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
               }
             },
-            child: const Text('تأكيد التسديد'),
+            child: const Text('تأكيد القبض'),
           ),
         ],
       ),
     );
   }
 
-  void _showCustomerStatement(Customer customer) async {
+  void _showStatementModal(Customer customer) async {
     final debtProv = Provider.of<CustomerDebtProvider>(context, listen: false);
-    final txns = await debtProv.getCustomerTransactions(customer.id!);
+    final history = await debtProv.getCustomerHistory(customer.id!);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (!mounted) return;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      backgroundColor: Colors.transparent,
       builder: (ctx) {
         return Container(
-          height: MediaQuery.of(context).size.height * 0.75,
-          padding: const EdgeInsets.all(16),
+          height: MediaQuery.of(context).size.height * 0.8,
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkSurface : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Container(
+                width: 44,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('كشف حساب: ${customer.name}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      Text('الدين الحالي: ${CurrencyFormatter.format(customer.currentDebt)}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.creditColor)),
+                      Text(customer.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      if (customer.phone.isNotEmpty)
+                        Text(customer.phone, style: const TextStyle(fontSize: 12, color: Colors.grey)),
                     ],
                   ),
-                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.of(ctx).pop()),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppColors.creditColor.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      'الدين: ${CurrencyFormatter.format(customer.currentDebt)}',
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.creditColor, fontSize: 13),
+                    ),
+                  ),
                 ],
               ),
-              const Divider(),
+              const Divider(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () => _showPaymentDialog(customer),
+                      icon: const Icon(Icons.payment, size: 18),
+                      label: const Text('تسديد دفعة'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        PrintService.shareCustomerDebtReminder(
+                          customer: customer,
+                          history: history,
+                        );
+                      },
+                      icon: const Icon(Icons.share, size: 18),
+                      label: const Text('كشف واتساب'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              const Text('سجل المعاملات والدفعات', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              const SizedBox(height: 8),
               Expanded(
-                child: txns.isEmpty
-                    ? const Center(child: Text('لا توجد حركات مسجلة لهذا الزبون'))
-                    : ListView.builder(
-                        itemCount: txns.length,
+                child: history.isEmpty
+                    ? const Center(child: Text('لا توجد معاملات مسجلة'))
+                    : ListView.separated(
+                        itemCount: history.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
                         itemBuilder: (ctx, i) {
-                          final t = txns[i];
-                          final isPayment = t['type'] == 'debt_payment';
-                          final amount = (t['amount'] as num?)?.toDouble() ?? 0.0;
+                          final tx = history[i];
+                          final isPayment = tx['type'] == 'payment';
+                          final date = DateTime.tryParse(tx['created_at'] ?? '') ?? DateTime.now();
 
                           return ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: isPayment ? AppColors.success.withOpacity(0.15) : AppColors.danger.withOpacity(0.15),
+                            contentPadding: EdgeInsets.zero,
+                            leading: Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: (isPayment ? AppColors.success : AppColors.creditColor).withOpacity(0.12),
+                                shape: BoxShape.circle,
+                              ),
                               child: Icon(
                                 isPayment ? Icons.arrow_downward : Icons.arrow_upward,
-                                color: isPayment ? AppColors.success : AppColors.danger,
+                                color: isPayment ? AppColors.success : AppColors.creditColor,
+                                size: 18,
                               ),
                             ),
                             title: Text(
-                              isPayment ? 'تسديد دفعة نقداً' : 'شراء بالكريدي',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
+                              isPayment ? 'تسديد دفعة' : (tx['notes'] ?? 'شراء بالدين'),
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                             ),
-                            subtitle: Text(
-                              '${DateFormat('yyyy/MM/dd HH:mm').format(DateTime.tryParse(t['created_at']) ?? DateTime.now())}\nالدين بعد العملية: ${CurrencyFormatter.format(t['new_debt'])}',
-                            ),
+                            subtitle: Text(DateFormat('yyyy/MM/dd HH:mm').format(date), style: const TextStyle(fontSize: 11, color: Colors.grey)),
                             trailing: Text(
-                              '${isPayment ? "-" : "+"}${CurrencyFormatter.format(amount)}',
+                              '${isPayment ? '-' : '+'}${CurrencyFormatter.format(tx['amount'])}',
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                color: isPayment ? AppColors.success : AppColors.danger,
                                 fontSize: 14,
+                                color: isPayment ? AppColors.success : AppColors.creditColor,
                               ),
                             ),
                           );
@@ -202,125 +286,163 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
   @override
   Widget build(BuildContext context) {
     final debtProv = Provider.of<CustomerDebtProvider>(context);
+    final customers = debtProv.customers;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('ديون الزبائن (الكريدي)'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.person_add),
-            tooltip: 'إضافة زبون جديد',
-            onPressed: _showAddCustomerDialog,
-          ),
-        ],
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: AppColors.creditColor.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.people_alt, color: AppColors.creditColor, size: 20),
+            ),
+            const SizedBox(width: 10),
+            const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('ديون الزبائن (الكريدي)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text('كشوف الحسابات والتسديد', style: TextStyle(fontSize: 11, color: Colors.grey)),
+              ],
+            ),
+          ],
+        ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showAddCustomerDialog,
+        backgroundColor: AppColors.creditColor,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.person_add),
+        label: const Text('زبون جديد', style: TextStyle(fontWeight: FontWeight.bold)),
       ),
       body: Column(
         children: [
           // Total Debts Banner
-          Container(
-            margin: const EdgeInsets.all(12),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFE65100), Color(0xFFF57C00)],
-                begin: Alignment.topRight,
-                end: Alignment.bottomLeft,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFEA580C), Color(0xFFF97316)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(color: AppColors.creditColor.withOpacity(0.25), blurRadius: 10, offset: const Offset(0, 4)),
+                ],
               ),
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(color: Colors.orange.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 3)),
-              ],
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('إجمالي ديون السوق في ذمة الزبائن', style: TextStyle(color: Colors.white, fontSize: 13)),
-                    SizedBox(height: 4),
-                    Text('المبالغ المنتظر تحصيلها', style: TextStyle(color: Colors.white70, fontSize: 11)),
-                  ],
-                ),
-                Text(
-                  CurrencyFormatter.format(debtProv.totalDebts),
-                  style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
-                ),
-              ],
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('إجمالي الديون المعلقة في السوق', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                      const SizedBox(height: 4),
+                      Text(
+                        CurrencyFormatter.format(debtProv.totalOutstandingDebt),
+                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '${customers.length} زبون',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
 
-          // Search
+          // Search Bar
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: TextField(
               controller: _searchCtrl,
               decoration: const InputDecoration(
-                hintText: 'بحث عن زبون بالاسم أو الهاتف...',
-                prefixIcon: Icon(Icons.search),
+                hintText: 'بحث باسم الزبون أو الهاتف...',
+                prefixIcon: Icon(Icons.search, color: AppColors.creditColor),
               ),
-              onChanged: (val) => debtProv.loadCustomers(query: val),
+              onChanged: (val) => debtProv.searchCustomers(val),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
 
           // Customers List
           Expanded(
             child: debtProv.isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : debtProv.customers.isEmpty
-                    ? const Center(child: Text('لا يوجد زبائن مسجلين'))
+                : customers.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.person_outline, size: 54, color: Colors.grey.shade400),
+                            const SizedBox(height: 12),
+                            const Text('لا يوجد زبائن كريدي مسجلين', style: TextStyle(fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      )
                     : ListView.builder(
-                        padding: const EdgeInsets.all(8),
-                        itemCount: debtProv.customers.length,
+                        itemCount: customers.length,
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         itemBuilder: (context, i) {
-                          final c = debtProv.customers[i];
+                          final cust = customers[i];
                           return Card(
                             child: ListTile(
-                              onTap: () => _showCustomerStatement(c),
-                              leading: CircleAvatar(
-                                backgroundColor: c.currentDebt > 0 ? AppColors.creditColor.withOpacity(0.15) : AppColors.success.withOpacity(0.15),
-                                child: Text(
-                                  c.name.isNotEmpty ? c.name[0] : 'ز',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: c.currentDebt > 0 ? AppColors.creditColor : AppColors.success,
+                              onTap: () => _showStatementModal(cust),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              leading: Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: AppColors.creditColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    cust.name.isNotEmpty ? cust.name[0] : 'ز',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.creditColor),
                                   ),
                                 ),
                               ),
-                              title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                              subtitle: Text(c.phone ?? 'بدون هاتف'),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
+                              title: Text(cust.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                              subtitle: Text(
+                                cust.phone.isNotEmpty ? cust.phone : 'بدون هاتف',
+                                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                              ),
+                              trailing: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
-                                  Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      Text(
-                                        CurrencyFormatter.format(c.currentDebt),
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                          color: c.currentDebt > 0 ? AppColors.creditColor : AppColors.success,
-                                        ),
-                                      ),
-                                      Text(c.currentDebt > 0 ? 'مستحق' : 'خالص ✓', style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                                    ],
+                                  Text(
+                                    CurrencyFormatter.format(cust.currentDebt),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                      color: cust.currentDebt > 0 ? AppColors.creditColor : AppColors.success,
+                                    ),
                                   ),
-                                  const SizedBox(width: 8),
-                                  if (c.currentDebt > 0) ...[
-                                    IconButton(
-                                      icon: const Icon(Icons.payment, color: AppColors.success),
-                                      tooltip: 'تسديد دفعة',
-                                      onPressed: () => _showPaymentDialog(c),
+                                  Text(
+                                    cust.currentDebt > 0 ? 'مطلوب دين' : 'خالص ✅',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: cust.currentDebt > 0 ? Colors.red : AppColors.success,
                                     ),
-                                    IconButton(
-                                      icon: const Icon(Icons.share, color: Color(0xFF25D366)),
-                                      tooltip: 'تذكير واتساب',
-                                      onPressed: () => CustomerDebtProvider.sendDebtReminderWhatsApp(c),
-                                    ),
-                                  ],
+                                  ),
                                 ],
                               ),
                             ),
