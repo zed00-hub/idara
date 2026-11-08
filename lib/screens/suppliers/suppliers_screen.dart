@@ -60,12 +60,13 @@ class _SuppliersScreenState extends State<SuppliersScreen> {
           ElevatedButton(
             onPressed: () async {
               if (nameCtrl.text.trim().isNotEmpty) {
+                final nav = Navigator.of(ctx);
                 await supProv.addSupplier(
                   name: nameCtrl.text.trim(),
                   phone: phoneCtrl.text.trim(),
                   company: compCtrl.text.trim(),
                 );
-                if (mounted) Navigator.of(ctx).pop();
+                if (mounted) nav.pop();
               }
             },
             child: const Text('إضافة'),
@@ -214,6 +215,8 @@ class _SuppliersScreenState extends State<SuppliersScreen> {
             TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('إلغاء')),
             ElevatedButton(
               onPressed: () async {
+                final nav = Navigator.of(ctx);
+                final messenger = ScaffoldMessenger.of(context);
                 final total = double.tryParse(totalCtrl.text.trim()) ?? 0.0;
                 final paid = double.tryParse(paidCtrl.text.trim()) ?? 0.0;
 
@@ -240,8 +243,8 @@ class _SuppliersScreenState extends State<SuppliersScreen> {
                   );
 
                   if (mounted) {
-                    Navigator.of(ctx).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    nav.pop();
+                    messenger.showSnackBar(
                       const SnackBar(
                         content: Text('✅ تم حفظ فاتورة المورد وصورتها بنجاح'),
                         behavior: SnackBarBehavior.floating,
@@ -303,8 +306,9 @@ class _SuppliersScreenState extends State<SuppliersScreen> {
             onPressed: () async {
               final amount = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
               if (amount > 0) {
+                final nav = Navigator.of(ctx);
                 await supProv.paySupplierDebt(supplierId: supplier.id!, amount: amount);
-                if (mounted) Navigator.of(ctx).pop();
+                if (mounted) nav.pop();
               }
             },
             child: const Text('تأكيد التسديد'),
@@ -317,9 +321,9 @@ class _SuppliersScreenState extends State<SuppliersScreen> {
   void _showSupplierInvoicesModal(Supplier supplier) async {
     final supProv = Provider.of<SupplierProvider>(context, listen: false);
     final invoices = await supProv.getSupplierInvoices(supplier.id!);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (!mounted) return;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     showModalBottomSheet(
       context: context,
@@ -380,7 +384,7 @@ class _SuppliersScreenState extends State<SuppliersScreen> {
                     )
                   : ListView.separated(
                       itemCount: invoices.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      separatorBuilder: (context, index) => const Divider(height: 1),
                       itemBuilder: (ctx, i) {
                         final inv = invoices[i];
                         final hasImage = inv['image_path'] != null && inv['image_path'].toString().isNotEmpty;
@@ -400,7 +404,7 @@ class _SuppliersScreenState extends State<SuppliersScreen> {
                                           width: 50,
                                           height: 50,
                                           fit: BoxFit.cover,
-                                          errorBuilder: (_, __, ___) => Container(
+                                          errorBuilder: (context, error, stackTrace) => Container(
                                             width: 50,
                                             height: 50,
                                             color: Colors.grey.shade300,

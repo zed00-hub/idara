@@ -138,15 +138,21 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
         }
       }
 
-      // 3. If cash was collected, record Cash-Out refund in open cash register
+      // 3. If cash was collected at checkout, handle cash register impact accurately
       if (invoice.paidAmount > 0) {
         final openReg = await txn.query('cash_register', where: 'is_closed = 0', limit: 1);
         if (openReg.isNotEmpty) {
-          final regId = openReg.first['id'] as int;
-          await txn.rawUpdate(
-            'UPDATE cash_register SET cash_out = cash_out + ? WHERE id = ?',
-            [invoice.paidAmount, regId],
-          );
+          final regOpenedAt = DateTime.tryParse(openReg.first['opened_at']?.toString() ?? '');
+          final invoiceCreatedAt = DateTime.tryParse(invoice.createdAt);
+          // If invoice was created in a previous session, refunding cash reduces current physical drawer cash
+          final isFromPreviousSession = regOpenedAt != null && invoiceCreatedAt != null && invoiceCreatedAt.isBefore(regOpenedAt);
+          if (isFromPreviousSession) {
+            final regId = openReg.first['id'] as int;
+            await txn.rawUpdate(
+              'UPDATE cash_register SET cash_out = cash_out + ? WHERE id = ?',
+              [invoice.paidAmount, regId],
+            );
+          }
         }
       }
 
@@ -165,6 +171,7 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
     if (mounted) {
       Navigator.of(context).pop(); // Close sheet
       await _loadInvoices();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('✅ تم إلغاء الفاتورة وإرجاع السلع للمخزون وحفظها كملغاة في السجل'),
@@ -277,7 +284,7 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
               Expanded(
                 child: ListView.separated(
                   itemCount: invoice.items.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  separatorBuilder: (context, index) => const Divider(height: 1),
                   itemBuilder: (ctx, i) {
                     final item = invoice.items[i];
                     return ListTile(
@@ -362,8 +369,6 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     final filtered = _filteredInvoices;
 
     return Scaffold(

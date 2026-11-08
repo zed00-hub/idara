@@ -64,12 +64,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ElevatedButton(
             onPressed: () async {
               if (nameCtrl.text.trim().isNotEmpty) {
+                final nav = Navigator.of(ctx);
                 await settings.updateStoreDetails(
                   name: nameCtrl.text.trim(),
                   phone: phoneCtrl.text.trim(),
                   address: addressCtrl.text.trim(),
                 );
-                Navigator.of(ctx).pop();
+                nav.pop();
               }
             },
             child: const Text('حفظ'),
@@ -107,13 +108,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ElevatedButton(
             onPressed: () async {
               final newPin = pinCtrl.text.trim();
+              final nav = Navigator.of(ctx);
+              final messenger = ScaffoldMessenger.of(context);
               await settings.setPin(newPin.isEmpty ? null : newPin);
               if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
+                messenger.showSnackBar(
                   SnackBar(content: Text(newPin.isEmpty ? 'تم إلغاء رمز PIN' : 'تم تفعيل رمز PIN بنجاح')),
                 );
+                nav.pop();
               }
-              Navigator.of(ctx).pop();
             },
             child: const Text('حفظ'),
           ),
@@ -213,9 +216,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: const Text('حفظ نسخة مشفرة من كافة المبيعات والديون والسلع'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () async {
+                    final messenger = ScaffoldMessenger.of(context);
                     final path = await BackupService.exportFullBackup();
                     if (path != null && mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      messenger.showSnackBar(
                         const SnackBar(content: Text('تم تصدير النسخة الاحتياطية بنجاح ✓')),
                       );
                     }
@@ -227,9 +231,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: const Text('استرجاع البيانات من ملف Backup سابق'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () async {
+                    final messenger = ScaffoldMessenger.of(context);
                     final ok = await BackupService.restoreFromBackup();
                     if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      messenger.showSnackBar(
                         SnackBar(
                           content: Text(ok ? 'تمت استعادة البيانات بنجاح ✓' : 'فشلت الاستعادة أو تم إلغاؤها'),
                           backgroundColor: ok ? AppColors.success : AppColors.danger,

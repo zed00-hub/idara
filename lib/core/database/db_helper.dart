@@ -43,10 +43,14 @@ class DBHelper {
     return await openDatabase(
       path,
       version: _dbVersion,
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
+      },
       onCreate: (db, version) async {
         await _createTables(db);
       },
       onOpen: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
         // Ensure all application tables exist even if copied from catalog
         await _createTables(db);
         try {
@@ -70,9 +74,9 @@ class DBHelper {
         barcode TEXT UNIQUE NOT NULL,
         name TEXT NOT NULL,
         reference TEXT,
-        cost_price REAL DEFAULT 0,
-        retail_price REAL DEFAULT 0,
-        wholesale_price REAL DEFAULT 0,
+        cost_price REAL DEFAULT 0 CHECK(cost_price >= 0),
+        retail_price REAL DEFAULT 0 CHECK(retail_price >= 0),
+        wholesale_price REAL DEFAULT 0 CHECK(wholesale_price >= 0),
         quantity REAL DEFAULT 0,
         unit TEXT DEFAULT 'piece',
         category TEXT DEFAULT 'عام',
@@ -102,8 +106,8 @@ class DBHelper {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         customer_id INTEGER NOT NULL,
         invoice_id INTEGER,
-        type TEXT NOT NULL, -- 'credit_sale', 'debt_payment'
-        amount REAL NOT NULL,
+        type TEXT NOT NULL, -- 'credit_sale', 'debt_payment', 'credit_refund', 'advance_refund'
+        amount REAL NOT NULL CHECK(amount >= 0),
         previous_debt REAL NOT NULL,
         new_debt REAL NOT NULL,
         notes TEXT,
@@ -119,10 +123,10 @@ class DBHelper {
         invoice_number TEXT UNIQUE NOT NULL,
         subtotal REAL NOT NULL,
         discount REAL DEFAULT 0,
-        total_amount REAL NOT NULL,
+        total_amount REAL NOT NULL CHECK(total_amount >= 0),
         payment_type TEXT NOT NULL, -- 'cash', 'credit', 'partial'
-        paid_amount REAL NOT NULL,
-        remaining_debt REAL DEFAULT 0,
+        paid_amount REAL NOT NULL CHECK(paid_amount >= 0),
+        remaining_debt REAL DEFAULT 0 CHECK(remaining_debt >= 0),
         change_given REAL DEFAULT 0,
         customer_id INTEGER,
         customer_name TEXT,
@@ -142,11 +146,11 @@ class DBHelper {
         product_id INTEGER,
         barcode TEXT,
         product_name TEXT NOT NULL,
-        quantity REAL NOT NULL,
-        unit_price REAL NOT NULL,
+        quantity REAL NOT NULL CHECK(quantity > 0),
+        unit_price REAL NOT NULL CHECK(unit_price >= 0),
         price_type TEXT DEFAULT 'retail',
         item_discount REAL DEFAULT 0,
-        subtotal REAL NOT NULL,
+        subtotal REAL NOT NULL CHECK(subtotal >= 0),
         cost_price REAL DEFAULT 0,
         FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
       )
@@ -172,9 +176,9 @@ class DBHelper {
         supplier_id INTEGER NOT NULL,
         supplier_name TEXT NOT NULL,
         invoice_number TEXT,
-        total_amount REAL NOT NULL,
-        paid_amount REAL NOT NULL,
-        remaining_debt REAL DEFAULT 0,
+        total_amount REAL NOT NULL CHECK(total_amount >= 0),
+        paid_amount REAL NOT NULL CHECK(paid_amount >= 0),
+        remaining_debt REAL DEFAULT 0 CHECK(remaining_debt >= 0),
         image_path TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         notes TEXT,
@@ -187,7 +191,7 @@ class DBHelper {
       CREATE TABLE IF NOT EXISTS expenses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
-        amount REAL NOT NULL,
+        amount REAL NOT NULL CHECK(amount >= 0),
         category TEXT DEFAULT 'أخرى',
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         notes TEXT
@@ -198,9 +202,9 @@ class DBHelper {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS cash_register (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        opening_amount REAL NOT NULL,
-        cash_in REAL DEFAULT 0,
-        cash_out REAL DEFAULT 0,
+        opening_amount REAL NOT NULL CHECK(opening_amount >= 0),
+        cash_in REAL DEFAULT 0 CHECK(cash_in >= 0),
+        cash_out REAL DEFAULT 0 CHECK(cash_out >= 0),
         actual_closing_amount REAL,
         opened_at TEXT DEFAULT CURRENT_TIMESTAMP,
         closed_at TEXT,

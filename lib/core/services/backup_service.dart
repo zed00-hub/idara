@@ -87,7 +87,7 @@ class BackupService {
 
       final db = await DBHelper.instance.database;
       await db.transaction((txn) async {
-        // Clear tables
+        // Clear tables in foreign-key safe order (child tables first)
         await txn.delete('invoice_items');
         await txn.delete('invoices');
         await txn.delete('customer_transactions');
@@ -96,6 +96,15 @@ class BackupService {
         await txn.delete('suppliers');
         await txn.delete('expenses');
         await txn.delete('cash_register');
+        await txn.delete('products');
+
+        // Restore Custom Products
+        if (data['products'] is List) {
+          for (var item in data['products']) {
+            await txn.insert('products', Map<String, dynamic>.from(item),
+                conflictAlgorithm: ConflictAlgorithm.replace);
+          }
+        }
 
         // Restore Customers
         if (data['customers'] is List) {
@@ -121,14 +130,6 @@ class BackupService {
           }
         }
 
-        // Restore Custom Products
-        if (data['products'] is List) {
-          for (var item in data['products']) {
-            await txn.insert('products', Map<String, dynamic>.from(item),
-                conflictAlgorithm: ConflictAlgorithm.replace);
-          }
-        }
-
         // Restore Customers Transactions
         if (data['customer_transactions'] is List) {
           for (var item in data['customer_transactions']) {
@@ -141,6 +142,14 @@ class BackupService {
         if (data['suppliers'] is List) {
           for (var item in data['suppliers']) {
             await txn.insert('suppliers', Map<String, dynamic>.from(item),
+                conflictAlgorithm: ConflictAlgorithm.replace);
+          }
+        }
+
+        // Restore Supplier Purchase Invoices
+        if (data['supplier_invoices'] is List) {
+          for (var item in data['supplier_invoices']) {
+            await txn.insert('supplier_invoices', Map<String, dynamic>.from(item),
                 conflictAlgorithm: ConflictAlgorithm.replace);
           }
         }

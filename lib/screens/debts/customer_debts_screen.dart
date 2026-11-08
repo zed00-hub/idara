@@ -63,12 +63,13 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
           ElevatedButton(
             onPressed: () async {
               if (nameCtrl.text.trim().isNotEmpty) {
+                final nav = Navigator.of(ctx);
                 await debtProv.addCustomer(
                   name: nameCtrl.text.trim(),
                   phone: phoneCtrl.text.trim(),
                   initialDebt: double.tryParse(debtCtrl.text.trim()) ?? 0.0,
                 );
-                if (mounted) Navigator.of(ctx).pop();
+                if (mounted) nav.pop();
               }
             },
             child: const Text('إضافة'),
@@ -148,6 +149,8 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
           TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('إلغاء')),
           ElevatedButton(
             onPressed: () async {
+              final nav = Navigator.of(ctx);
+              final messenger = ScaffoldMessenger.of(context);
               final amt = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
               if (amt <= 0) return;
 
@@ -190,8 +193,8 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
                 notes: notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim(),
               );
               if (mounted) {
-                Navigator.of(ctx).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
+                nav.pop();
+                messenger.showSnackBar(
                   const SnackBar(
                     content: Text('✅ تم تسجيل الدفعة وتحديث رصيد الزبون'),
                     behavior: SnackBarBehavior.floating,
@@ -206,9 +209,101 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
     );
   }
 
+  void _showRefundAdvanceDialog(Customer customer) {
+    final availableAdvance = -customer.currentDebt;
+    final amountCtrl = TextEditingController(text: availableAdvance.round().toString());
+    final notesCtrl = TextEditingController(text: 'إرجاع تسبيق نقداً');
+    final debtProv = Provider.of<CustomerDebtProvider>(context, listen: false);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('رد تسبيق: ${customer.name}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0D9488).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('رصيد التسبيق المتاح:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  Text(
+                    '+${CurrencyFormatter.format(availableAdvance)}',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0D9488)),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: amountCtrl,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'المبلغ المراد إرجاعه نقداً (دج) *',
+                prefixIcon: Icon(Icons.money_off_rounded),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: notesCtrl,
+              decoration: const InputDecoration(labelText: 'ملاحظة'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('إلغاء')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D9488)),
+            onPressed: () async {
+              final amt = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
+              if (amt <= 0 || amt > availableAdvance) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('⚠️ يرجى إدخال مبلغ صحيح لا يتجاوز رصيد التسبيق المتاح'),
+                    backgroundColor: AppColors.danger,
+                  ),
+                );
+                return;
+              }
+
+              final nav = Navigator.of(ctx);
+              final messenger = ScaffoldMessenger.of(context);
+              final success = await debtProv.refundAdvance(
+                customerId: customer.id!,
+                refundAmount: amt,
+                notes: notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim(),
+              );
+
+              if (!mounted) return;
+              nav.pop();
+              if (success) {
+                messenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('✅ تم إرجاع المبلغ نقداً وتحديث رصيد الزبون والصندوق'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+            child: const Text('تأكيد رد التسبيق', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _editCustomerDialog(Customer customer) {
     final nameCtrl = TextEditingController(text: customer.name);
     final phoneCtrl = TextEditingController(text: customer.phone ?? '');
+    final debtCtrl = TextEditingController(text: customer.currentDebt.toStringAsFixed(0));
     final notesCtrl = TextEditingController(text: customer.notes ?? '');
 
     showDialog(
@@ -222,6 +317,15 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
             const SizedBox(height: 10),
             TextField(controller: phoneCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'رقم الهاتف')),
             const SizedBox(height: 10),
+            TextField(
+              controller: debtCtrl,
+              keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'الرصيد المالي الحالي (دج)',
+                helperText: 'موجب = دين عليه، سالب = تسبيق لصالحه',
+              ),
+            ),
+            const SizedBox(height: 10),
             TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'ملاحظات')),
           ],
         ),
@@ -230,16 +334,21 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
           ElevatedButton(
             onPressed: () async {
               if (nameCtrl.text.trim().isEmpty) return;
+              final parsedDebt = double.tryParse(debtCtrl.text.trim()) ?? customer.currentDebt;
               final updated = customer.copyWith(
                 name: nameCtrl.text.trim(),
                 phone: phoneCtrl.text.trim(),
+                currentDebt: parsedDebt,
                 notes: notesCtrl.text.trim(),
               );
+              final nav = Navigator.of(ctx);
+              final rootNav = Navigator.of(context);
+              final messenger = ScaffoldMessenger.of(context);
               await Provider.of<CustomerDebtProvider>(context, listen: false).updateCustomer(updated);
               if (mounted) {
-                Navigator.of(ctx).pop();
-                Navigator.of(context).pop(); // close sheet
-                ScaffoldMessenger.of(context).showSnackBar(
+                nav.pop();
+                rootNav.pop(); // close sheet
+                messenger.showSnackBar(
                   const SnackBar(content: Text('✅ تم تعديل بيانات الزبون بنجاح'), behavior: SnackBarBehavior.floating),
                 );
               }
@@ -269,9 +378,12 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
     );
 
     if (confirm == true && mounted) {
+      final rootNav = Navigator.of(context);
+      final messenger = ScaffoldMessenger.of(context);
       await Provider.of<CustomerDebtProvider>(context, listen: false).deleteCustomer(customer.id!);
-      Navigator.of(context).pop(); // close sheet
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (!mounted) return;
+      rootNav.pop(); // close sheet
+      messenger.showSnackBar(
         const SnackBar(content: Text('✅ تم حذف الزبون بنجاح'), behavior: SnackBarBehavior.floating),
       );
     }
@@ -280,9 +392,9 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
   void _showStatementModal(Customer customer) async {
     final debtProv = Provider.of<CustomerDebtProvider>(context, listen: false);
     final history = await debtProv.getCustomerTransactions(customer.id!);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (!mounted) return;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     showModalBottomSheet(
       context: context,
@@ -363,11 +475,24 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
               Row(
                 children: [
                   Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => _showPaymentDialog(customer),
-                      icon: const Icon(Icons.payment, size: 18),
-                      label: const Text('تسديد دفعة'),
-                    ),
+                    child: customer.currentDebt < 0
+                        ? ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D9488)),
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                              _showRefundAdvanceDialog(customer);
+                            },
+                            icon: const Icon(Icons.keyboard_return_rounded, size: 18, color: Colors.white),
+                            label: const Text('رد التسبيق نقداً', style: TextStyle(color: Colors.white)),
+                          )
+                        : ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                              _showPaymentDialog(customer);
+                            },
+                            icon: const Icon(Icons.payment, size: 18),
+                            label: const Text('تسديد دفعة'),
+                          ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -389,7 +514,7 @@ class _CustomerDebtsScreenState extends State<CustomerDebtsScreen> {
                     ? const Center(child: Text('لا توجد معاملات مسجلة'))
                     : ListView.separated(
                         itemCount: history.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        separatorBuilder: (context, index) => const Divider(height: 1),
                         itemBuilder: (ctx, i) {
                           final tx = history[i];
                           final isPayment = tx['type'] == 'debt_payment' || tx['type'] == 'payment';

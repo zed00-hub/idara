@@ -25,6 +25,9 @@ class CartItem {
     return raw > 0 ? raw : 0.0;
   }
 
+  double get totalCost => quantity * product.costPrice;
+  double get profit => subtotal - totalCost;
+
   void switchPriceType(PriceType newType) {
     priceType = newType;
     if (newType == PriceType.wholesale && product.wholesalePrice > 0) {
@@ -36,7 +39,7 @@ class CartItem {
 
   Map<String, dynamic> toMap({int? invoiceId}) {
     return {
-      if (invoiceId != null) 'invoice_id': invoiceId,
+      'invoice_id': ?invoiceId,
       'product_id': product.id,
       'barcode': product.barcode,
       'product_name': product.name,

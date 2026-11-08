@@ -86,7 +86,6 @@ class AppSettingsProvider extends ChangeNotifier {
   }
 
   bool verifyPin(String enteredPin) {
-    if (_pinCode == null || _pinCode!.isEmpty) return true;
-    return _pinCode == enteredPin;
+    return StorageService.verifyPin(enteredPin);
   }
 }

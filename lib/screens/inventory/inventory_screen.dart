@@ -49,8 +49,10 @@ class _InventoryScreenState extends State<InventoryScreen> {
     if (!mounted) return;
     final updated = await ProductFormDialog.show(context, product: p);
     if (updated != null && mounted) {
+      final messenger = ScaffoldMessenger.of(context);
       await Provider.of<InventoryProvider>(context, listen: false).addOrUpdateProduct(updated);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (!mounted) return;
+      messenger.showSnackBar(
         const SnackBar(
           content: Text('✅ تم تحديث بيانات السلعة بنجاح'),
           behavior: SnackBarBehavior.floating,
@@ -62,8 +64,10 @@ class _InventoryScreenState extends State<InventoryScreen> {
   void _onAddProduct() async {
     final updated = await ProductFormDialog.show(context);
     if (updated != null && mounted) {
+      final messenger = ScaffoldMessenger.of(context);
       await Provider.of<InventoryProvider>(context, listen: false).addOrUpdateProduct(updated);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (!mounted) return;
+      messenger.showSnackBar(
         const SnackBar(
           content: Text('✅ تمت إضافة السلعة بنجاح'),
           behavior: SnackBarBehavior.floating,
@@ -102,8 +106,10 @@ class _InventoryScreenState extends State<InventoryScreen> {
     );
 
     if (confirm == true && mounted) {
+      final messenger = ScaffoldMessenger.of(context);
       await Provider.of<InventoryProvider>(context, listen: false).deleteProduct(p.id!);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (!mounted) return;
+      messenger.showSnackBar(
         const SnackBar(
           content: Text('✅ تم حذف السلعة بنجاح'),
           behavior: SnackBarBehavior.floating,

@@ -176,6 +176,7 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
           ElevatedButton(
             onPressed: () async {
               if (nameCtrl.text.trim().isNotEmpty) {
+                final nav = Navigator.of(ctx);
                 final debtProv = Provider.of<CustomerDebtProvider>(context, listen: false);
                 final newCust = await debtProv.addCustomer(
                   name: nameCtrl.text.trim(),
@@ -188,7 +189,7 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                   );
                   setState(() => _selectedCustomer = matched);
                 }
-                Navigator.of(ctx).pop();
+                nav.pop();
               }
             },
             child: const Text('إضافة'),

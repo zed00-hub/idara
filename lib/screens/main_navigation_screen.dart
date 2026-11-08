@@ -31,13 +31,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     const CustomerDebtsScreen(),
   ];
 
-  final List<String> _titles = const [
-    'الكاشير ونقاط البيع',
-    'المخزون والكتالوج',
-    'سجل الفواتير والمبيعات',
-    'ديون الزبائن (الكريدي)',
-  ];
-
   void _onCenterButtonPressed() {
     if (_currentIndex != 0) {
       setState(() => _currentIndex = 0);
@@ -77,7 +70,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   void _showCenterActionMenu() {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final pos = Provider.of<POSProvider>(context, listen: false);
 
     showModalBottomSheet(
       context: context,

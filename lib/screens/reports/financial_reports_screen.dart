@@ -119,9 +119,10 @@ class _FinancialReportsScreenState extends State<FinancialReportsScreen> {
           ElevatedButton(
             onPressed: () async {
               final amount = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
+              final nav = Navigator.of(ctx);
               await reportProv.openCashRegister(amount, notes: notesCtrl.text.trim());
-              Navigator.of(ctx).pop();
-              _loadData();
+              nav.pop();
+              if (mounted) _loadData();
             },
             child: const Text('تأكيد الفتح'),
           ),
@@ -192,9 +193,10 @@ class _FinancialReportsScreenState extends State<FinancialReportsScreen> {
               onPressed: () async {
                 final amount = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
                 if (titleCtrl.text.trim().isNotEmpty && amount > 0) {
+                  final nav = Navigator.of(ctx);
                   await reportProv.addExpense(title: titleCtrl.text.trim(), amount: amount, category: category);
-                  Navigator.of(ctx).pop();
-                  _loadData();
+                  nav.pop();
+                  if (mounted) _loadData();
                 }
               },
               child: const Text('تسجيل المصروف'),

@@ -155,6 +155,58 @@ class CustomerDebtProvider extends ChangeNotifier {
     }
   }
 
+  /// Refunds an advance credit (تسبيق) back to customer in cash and adjusts balance towards zero
+  Future<bool> refundAdvance({
+    required int customerId,
+    required double refundAmount,
+    String? notes,
+  }) async {
+    if (refundAmount <= 0) return false;
+    final db = await DBHelper.instance.database;
+    try {
+      final custMaps = await db.query('customers', where: 'id = ?', whereArgs: [customerId]);
+      if (custMaps.isEmpty) return false;
+
+      final customer = Customer.fromMap(custMaps.first);
+      final prevDebt = customer.currentDebt;
+      final newDebt = prevDebt + refundAmount;
+
+      await db.transaction((txn) async {
+        await txn.insert('customer_transactions', {
+          'customer_id': customerId,
+          'type': 'advance_refund',
+          'amount': refundAmount,
+          'previous_debt': prevDebt,
+          'new_debt': newDebt,
+          'notes': notes ?? 'إرجاع تسبيق نقداً للزبون',
+          'created_at': DateTime.now().toIso8601String(),
+        });
+
+        await txn.update(
+          'customers',
+          {'current_debt': newDebt},
+          where: 'id = ?',
+          whereArgs: [customerId],
+        );
+
+        // Record physical cash out from open drawer
+        final openReg = await txn.query('cash_register', where: 'is_closed = 0', limit: 1);
+        if (openReg.isNotEmpty) {
+          final regId = openReg.first['id'] as int;
+          await txn.rawUpdate(
+            'UPDATE cash_register SET cash_out = cash_out + ? WHERE id = ?',
+            [refundAmount, regId],
+          );
+        }
+      });
+
+      await loadCustomers(query: _searchQuery);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   /// Fetches statement transactions for a specific customer
   Future<List<Map<String, dynamic>>> getCustomerTransactions(int customerId) async {
     final db = await DBHelper.instance.database;

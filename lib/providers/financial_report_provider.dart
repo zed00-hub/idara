@@ -232,10 +232,14 @@ class FinancialReportProvider extends ChangeNotifier {
       reportDateLabel = 'كافة الفترات (إجمالي)';
     }
 
-    // 1. Invoices
+    // 1. Invoices (Exclude cancelled invoices from sales metrics)
+    String invoiceWhere = 'is_cancelled = 0';
+    if (whereClause != null) {
+      invoiceWhere += ' AND $whereClause';
+    }
     final invoices = await db.query(
       'invoices',
-      where: whereClause,
+      where: invoiceWhere,
       whereArgs: whereArgs,
     );
 
@@ -256,14 +260,15 @@ class FinancialReportProvider extends ChangeNotifier {
       totalDiscounts += disc;
     }
 
-    // 2. Gross profit from items sold
+    // 2. Gross profit from items sold (Only non-cancelled invoices)
     String itemsQuery = '''
       SELECT ii.quantity, ii.unit_price, ii.cost_price, ii.subtotal
       FROM invoice_items ii
       JOIN invoices i ON ii.invoice_id = i.id
+      WHERE i.is_cancelled = 0
     ''';
     if (whereClause != null) {
-      itemsQuery += ' WHERE i.$whereClause';
+      itemsQuery += ' AND i.$whereClause';
     }
     final invoiceItems = await db.rawQuery(itemsQuery, whereArgs);
 

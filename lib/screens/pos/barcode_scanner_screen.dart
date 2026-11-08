@@ -7,7 +7,6 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/audio_service.dart';
 import '../../core/utils/currency_formatter.dart';
-import '../../models/cart_item.dart';
 import '../../models/product.dart';
 import '../../providers/pos_provider.dart';
 
@@ -71,7 +70,6 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
   bool _isHandlingDialog = false;
   bool _hasPermissionError = false;
   String? _errorMessage;
-  bool _isCartExpanded = false;
 
   // Barcode debounce map to avoid scanning same barcode 30 times a second
   final Map<String, int> _recentScans = {};
@@ -203,6 +201,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
 
     final pos = Provider.of<POSProvider>(context, listen: false);
     final product = await pos.getProductByBarcode(code);
+    if (!mounted) return;
 
     if (widget.isBarcodePicker) {
       AudioService.playScanBeep();
@@ -466,13 +465,14 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                           wholesalePrice: wholesale,
                         );
 
+                        final nav = Navigator.of(ctx);
                         await pos.saveProductAndAddToCart(product: updatedProduct);
 
                         if (mounted) {
                           setState(() {
                             _lastScannedBanner = '${updatedProduct.name} • ${updatedProduct.retailPrice.round()} دج';
                           });
-                          Navigator.of(ctx).pop();
+                          nav.pop();
                         }
                       },
                       icon: const Icon(Icons.check, size: 20),
@@ -645,13 +645,14 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                           isCustom: true,
                         );
 
+                        final nav = Navigator.of(ctx);
                         await pos.saveProductAndAddToCart(product: newProduct);
 
                         if (mounted) {
                           setState(() {
                             _lastScannedBanner = '$name • ${retail.round()} دج';
                           });
-                          Navigator.of(ctx).pop();
+                          nav.pop();
                         }
                       },
                       icon: const Icon(Icons.check, size: 20),
@@ -726,11 +727,11 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.camera_alt_outlined, color: Colors.amber, size: 54),
+                      Icon(_hasPermissionError ? Icons.no_photography_outlined : Icons.camera_alt_outlined, color: Colors.amber, size: 54),
                       const SizedBox(height: 14),
                       Text(
                         'تعذر بدء الكاميرا المباشرة (${error.errorCode.name})\n'
-                        '${error.errorDetails?.message ?? "يرجى التأكد من منح إذن الكاميرا للهاتف"}',
+                        '${_errorMessage ?? error.errorDetails?.message ?? "يرجى التأكد من منح إذن الكاميرا للهاتف"}',
                         style: const TextStyle(color: Colors.white, fontSize: 13),
                         textAlign: TextAlign.center,
                       ),

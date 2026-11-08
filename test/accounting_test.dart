@@ -1,5 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ndmha/core/utils/currency_formatter.dart';
+import 'package:ndmha/models/cart_item.dart';
+import 'package:ndmha/models/product.dart';
+import 'package:ndmha/models/customer.dart';
+import 'package:ndmha/models/invoice.dart';
+import 'package:ndmha/models/expense.dart';
+import 'package:ndmha/models/supplier.dart';
+import 'package:ndmha/models/cash_register.dart';
+import 'package:ndmha/providers/financial_report_provider.dart';
+import 'package:ndmha/core/services/storage_service.dart';
 
 void main() {
   group('Algerian Dinar Currency & Rounding Tests', () {
@@ -27,14 +36,12 @@ void main() {
         paidAmount: 200,
         totalDue: 188,
       );
-      // exact: 12 -> rounded: 10
       expect(change, 10);
 
       final change2 = CurrencyFormatter.calculateRoundedChange(
         paidAmount: 500,
         totalDue: 483,
       );
-      // exact: 17 -> rounded: 15
       expect(change2, 15);
 
       final changeUnderpaid = CurrencyFormatter.calculateRoundedChange(
@@ -43,113 +50,197 @@ void main() {
       );
       expect(changeUnderpaid, 0);
     });
+
+    test('format formats currency with DA label and comma separators', () {
+      expect(CurrencyFormatter.format(150), '150 دج');
+      expect(CurrencyFormatter.format(1250), '1,250 دج');
+      expect(CurrencyFormatter.format(150.5), '151 دج');
+    });
   });
 
-  group('Accounting & Valuation Math Tests', () {
-    test('Gross profit and profit margin calculation with positive margin', () {
-      const totalSales = 10000.0;
-      const totalCost = 7500.0;
-      const totalExpenses = 500.0;
+  group('CartItem & Product Real Business Logic Tests', () {
+    final testProduct = Product(
+      id: 1,
+      barcode: '613000000001',
+      name: 'حليب كانديا',
+      costPrice: 90.0,
+      retailPrice: 110.0,
+      wholesalePrice: 100.0,
+      quantity: 50,
+      category: 'ألبان',
+    );
 
-      final grossProfit = totalSales - totalCost;
-      final netProfit = grossProfit - totalExpenses;
-      final profitMargin = totalCost > 0 ? (grossProfit / totalCost) * 100 : 0.0;
+    test('CartItem retail subtotal and profit calculation', () {
+      final item = CartItem(
+        product: testProduct,
+        quantity: 3,
+        priceType: PriceType.retail,
+      );
 
-      expect(grossProfit, 2500.0);
-      expect(netProfit, 2000.0);
-      expect(profitMargin, closeTo(33.33, 0.01));
+      expect(item.unitPrice, 110.0);
+      expect(item.subtotal, 330.0);
+      expect(item.totalCost, 270.0);
+      expect(item.profit, 60.0);
     });
 
-    test('Gross profit accurately reflects negative margin (trading loss)', () {
-      const totalSales = 5000.0;
-      const totalCost = 6000.0;
-      const totalExpenses = 400.0;
+    test('CartItem switchPriceType between retail and wholesale', () {
+      final item = CartItem(
+        product: testProduct,
+        quantity: 10,
+        priceType: PriceType.retail,
+      );
 
-      final grossProfit = totalSales - totalCost;
-      final netProfit = grossProfit - totalExpenses;
-      final profitMargin = totalCost > 0 ? (grossProfit / totalCost) * 100 : 0.0;
+      expect(item.unitPrice, 110.0);
+      expect(item.subtotal, 1100.0);
 
-      expect(grossProfit, -1000.0);
-      expect(netProfit, -1400.0);
-      expect(profitMargin, closeTo(-16.67, 0.01));
+      item.switchPriceType(PriceType.wholesale);
+      expect(item.priceType, PriceType.wholesale);
+      expect(item.unitPrice, 100.0);
+      expect(item.subtotal, 1000.0);
+      expect(item.totalCost, 900.0);
+      expect(item.profit, 100.0);
     });
 
-    test('Effective discount clamping does not exceed subtotal', () {
-      const subtotal = 150.0;
-      const inputDiscount = 200.0;
+    test('CartItem discounts apply cleanly and prevent negative subtotal', () {
+      final item = CartItem(
+        product: testProduct,
+        quantity: 2,
+        priceType: PriceType.retail,
+        itemDiscount: 20.0,
+      );
 
-      final effectiveDiscount = (inputDiscount > subtotal) ? subtotal : (inputDiscount < 0 ? 0.0 : inputDiscount);
-      final netTotal = subtotal - effectiveDiscount;
+      expect(item.subtotal, 200.0);
 
-      expect(effectiveDiscount, 150.0);
-      expect(netTotal, 0.0);
+      item.itemDiscount = 500.0;
+      expect(item.subtotal, 0.0);
     });
 
-    test('Partial payment change calculation when paid amount exceeds net total', () {
-      const netTotal = 340.0;
-      const paidAmount = 400.0;
+    test('CartItem serialization toMap and fromMap roundtrip', () {
+      final item = CartItem(
+        product: testProduct,
+        quantity: 5,
+        priceType: PriceType.wholesale,
+        itemDiscount: 10,
+      );
 
-      final bool isFullOrOverpaid = paidAmount >= netTotal;
-      final int change = isFullOrOverpaid 
-          ? CurrencyFormatter.calculateRoundedChange(paidAmount: paidAmount, totalDue: netTotal)
-          : 0;
-      final double remainingDebt = isFullOrOverpaid ? 0.0 : (netTotal - paidAmount);
+      final map = item.toMap(invoiceId: 42);
+      expect(map['invoice_id'], 42);
+      expect(map['barcode'], '613000000001');
+      expect(map['quantity'], 5.0);
+      expect(map['price_type'], 'wholesale');
+      expect(map['subtotal'], 490.0);
 
-      expect(isFullOrOverpaid, isTrue);
-      // exact change 60 -> rounded to 5 DZD is 60
-      expect(change, 60);
-      expect(remainingDebt, 0.0);
+      final restored = CartItem.fromMap(map);
+      expect(restored.product.name, 'حليب كانديا');
+      expect(restored.quantity, 5.0);
+      expect(restored.priceType, PriceType.wholesale);
+      expect(restored.unitPrice, 100.0);
+    });
+  });
+
+  group('Customer & Debt Financial Model Tests', () {
+    test('Customer model serialization and advance credit calculation', () {
+      final customer = Customer(
+        id: 10,
+        name: 'أحمد بن علي',
+        phone: '0555123456',
+        currentDebt: -300.0,
+      );
+
+      expect(customer.currentDebt, -300.0);
+      final map = customer.toMap();
+      expect(map['current_debt'], -300.0);
+
+      final restored = Customer.fromMap(map);
+      expect(restored.id, 10);
+      expect(restored.name, 'أحمد بن علي');
+      expect(restored.currentDebt, -300.0);
     });
 
-    test('Partial payment for new customer accurately leaves remaining debt', () {
-      const netTotal = 1415.0;
-      const paidAmount = 415.0;
+    test('Customer copyWith updates debt and details', () {
+      final customer = Customer(id: 1, name: 'سعيد', currentDebt: 500.0);
+      final updated = customer.copyWith(currentDebt: 0.0);
+      expect(updated.currentDebt, 0.0);
+      expect(updated.name, 'سعيد');
+    });
+  });
 
-      final remainingDebt = netTotal - paidAmount;
-      expect(remainingDebt, 1000.0);
+  group('Invoice & ZReport Real Calculation Tests', () {
+    test('Invoice model serialization and cancellation status', () {
+      final invoice = Invoice(
+        id: 100,
+        invoiceNumber: 'INV-20261108-001',
+        subtotal: 1000.0,
+        discount: 100.0,
+        totalAmount: 900.0,
+        paymentType: PaymentType.partial,
+        paidAmount: 400.0,
+        remainingDebt: 500.0,
+        changeGiven: 0.0,
+        customerId: 5,
+        customerName: 'فاروق',
+        isCancelled: false,
+      );
 
-      // Previous customer debt was 0.0 (new customer)
-      const prevCustomerDebt = 0.0;
-      final newCustomerDebt = prevCustomerDebt + remainingDebt;
-      expect(newCustomerDebt, 1000.0);
+      expect(invoice.isCancelled, isFalse);
+      expect(invoice.totalAmount, 900.0);
+
+      final map = invoice.toMap();
+      expect(map['is_cancelled'], 0);
+      expect(map['remaining_debt'], 500.0);
+
+      final fromDb = Invoice.fromMap(map);
+      expect(fromDb.invoiceNumber, 'INV-20261108-001');
+      expect(fromDb.isCancelled, isFalse);
+
+      final cancelledInvoice = invoice.copyWith(isCancelled: true, cancelledAt: DateTime.now().toIso8601String());
+      expect(cancelledInvoice.isCancelled, isTrue);
+      expect(cancelledInvoice.toMap()['is_cancelled'], 1);
     });
 
-    test('Customer overpayment records advance / credit balance as negative debt', () {
-      const prevDebt = 1000.0;
-      const paymentAmount = 1500.0;
+    test('ZReportSummary financial formula consistency', () {
+      final report = ZReportSummary(
+        date: '2026-11-08',
+        totalInvoices: 15,
+        totalSales: 45000.0,
+        cashSales: 30000.0,
+        creditSales: 15000.0,
+        totalDiscounts: 1200.0,
+        grossProfit: 12500.0,
+        totalExpenses: 2500.0,
+        netProfit: 10000.0,
+        openingCash: 5000.0,
+        expectedDrawerCash: 36000.0,
+        debtsCollected: 2000.0,
+        profitMarginPercent: 27.78,
+      );
 
-      // In double-entry retail accounting, debt - payment = new debt balance
-      final newDebt = prevDebt - paymentAmount;
-
-      // Expect -500.0 indicating a 500 DZD credit balance / advance in customer's favor
-      expect(newDebt, -500.0);
-      expect(newDebt < 0, isTrue);
-      final advanceAmount = -newDebt;
-      expect(advanceAmount, 500.0);
+      expect(report.netProfit, report.grossProfit - report.totalExpenses);
+      expect(report.totalSales, report.cashSales + report.creditSales);
     });
 
-    test('Advance credit balance is correctly offset by subsequent credit purchase', () {
-      // Customer has 500 DZD advance (debt = -500.0)
-      const currentDebt = -500.0;
-      const newPurchaseDebt = 700.0;
+    test('Supplier and CashRegister models serialization', () {
+      final supplier = Supplier(id: 1, name: 'سيفيتال', company: 'Cevital', currentDebt: 50000);
+      expect(supplier.toMap()['current_debt'], 50000.0);
 
-      final updatedDebt = currentDebt + newPurchaseDebt;
-      // -500 + 700 = 200 DZD owed to store
-      expect(updatedDebt, 200.0);
+      final register = CashRegister(id: 1, openingAmount: 5000, cashIn: 2000, cashOut: 1500);
+      expect(register.toMap()['opening_amount'], 5000.0);
+
+      final expense = Expense(id: 1, title: 'فاتورة الكهرباء', amount: 3500);
+      expect(expense.toMap()['amount'], 3500.0);
     });
+  });
 
-    test('Cancelled invoice exclusion from total sales revenue', () {
-      final invoices = [
-        {'id': 1, 'amount': 1500.0, 'is_cancelled': 0},
-        {'id': 2, 'amount': 2200.0, 'is_cancelled': 1}, // cancelled
-        {'id': 3, 'amount': 800.0, 'is_cancelled': 0},
-      ];
+  group('Security & PIN Hashing Tests', () {
+    test('SHA-256 PIN hashing is deterministic and irreversible', () {
+      final hash1 = StorageService.hashPin('1234');
+      final hash2 = StorageService.hashPin('1234');
+      final hashDiff = StorageService.hashPin('5678');
 
-      final totalActiveRevenue = invoices
-          .where((inv) => inv['is_cancelled'] == 0)
-          .fold(0.0, (sum, inv) => sum + (inv['amount'] as double));
-
-      expect(totalActiveRevenue, 2300.0); // 1500 + 800
+      expect(hash1, hash2);
+      expect(hash1, isNot(equals('1234')));
+      expect(hash1, isNot(equals(hashDiff)));
+      expect(hash1.length, 64);
     });
   });
 }

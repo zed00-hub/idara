@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class StorageService {
@@ -42,13 +44,28 @@ class StorageService {
   static Future<void> setStoreAddress(String address) async =>
       await _prefs?.setString(_keyStoreAddress, address);
 
+  static String hashPin(String pin) {
+    return sha256.convert(utf8.encode('ndmha_pin_salt_$pin')).toString();
+  }
+
   static String? getPinCode() => _prefs?.getString(_keyPinCode);
   static Future<void> setPinCode(String? pin) async {
     if (pin == null || pin.isEmpty) {
       await _prefs?.remove(_keyPinCode);
     } else {
-      await _prefs?.setString(_keyPinCode, pin);
+      await _prefs?.setString(_keyPinCode, hashPin(pin));
     }
+  }
+
+  static bool verifyPin(String enteredPin) {
+    final stored = getPinCode();
+    if (stored == null || stored.isEmpty) return true;
+    if (stored == enteredPin) {
+      // Auto-migrate legacy plaintext PIN to SHA-256 hash
+      setPinCode(enteredPin);
+      return true;
+    }
+    return stored == hashPin(enteredPin);
   }
 
   static bool isPinEnabled() => getPinCode() != null && getPinCode()!.isNotEmpty;
