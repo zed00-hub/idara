@@ -30,6 +30,7 @@ class _POSScreenState extends State<POSScreen> with WidgetsBindingObserver {
   bool _isFrontCamera = false;
   bool _isStartingCamera = false;
   bool _hasCameraPermission = true;
+  double _posZoomScale = 0.0;
   String? _cameraErrorMessage;
   String? _recentScanBanner;
   Timer? _bannerTimer;
@@ -80,12 +81,29 @@ class _POSScreenState extends State<POSScreen> with WidgetsBindingObserver {
   MobileScannerController _createController() {
     return MobileScannerController(
       autoStart: false,
-      detectionSpeed: DetectionSpeed.noDuplicates,
+      detectionSpeed: DetectionSpeed.normal,
+      detectionTimeoutMs: 1000,
       facing: CameraFacing.back,
       torchEnabled: false,
       returnImage: false,
+      formats: const [
+        BarcodeFormat.ean13,
+        BarcodeFormat.ean8,
+        BarcodeFormat.upcA,
+        BarcodeFormat.upcE,
+        BarcodeFormat.code128,
+        BarcodeFormat.code39,
+        BarcodeFormat.code93,
+        BarcodeFormat.itf,
+        BarcodeFormat.qrCode,
+      ],
       useNewCameraSelector: true,
     );
+  }
+
+  Future<void> _setPosZoom(double scale) async {
+    setState(() => _posZoomScale = scale);
+    await _posCameraController?.setZoomScale(scale);
   }
 
   Future<void> _initPosCamera() async {
@@ -168,7 +186,11 @@ class _POSScreenState extends State<POSScreen> with WidgetsBindingObserver {
     if (product != null && mounted) {
       HapticFeedback.lightImpact();
       setState(() {
-        _recentScanBanner = '${product.name} • ${CurrencyFormatter.format(product.retailPrice)}';
+        if (product.costPrice > 0) {
+          _recentScanBanner = '${product.name} • بيع: ${product.retailPrice.round()} دج (شراء: ${product.costPrice.round()} دج)';
+        } else {
+          _recentScanBanner = '${product.name} • بيع: ${CurrencyFormatter.format(product.retailPrice)}';
+        }
       });
       _bannerTimer?.cancel();
       _bannerTimer = Timer(const Duration(seconds: 3), () {
@@ -307,7 +329,7 @@ class _POSScreenState extends State<POSScreen> with WidgetsBindingObserver {
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                   subtitle: Text(
-                                    'باركود: ${p.barcode} • تجزئة: ${p.retailPrice.round()} دج • جملة: ${p.wholesalePrice.round()} دج',
+                                    'باركود: ${p.barcode} • بيع: ${p.retailPrice.round()} دج • شراء: ${p.costPrice.round()} دج',
                                     style: const TextStyle(fontSize: 12, color: Colors.grey),
                                   ),
                                   trailing: ElevatedButton(
@@ -555,177 +577,222 @@ class _POSScreenState extends State<POSScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _showSetPriceDialog(Product product) async {
-    final retailCtrl = TextEditingController();
-    final wholesaleCtrl = TextEditingController();
+    final retailCtrl = TextEditingController(text: product.retailPrice > 0 ? product.retailPrice.toStringAsFixed(0) : '');
+    final costCtrl = TextEditingController(text: product.costPrice > 0 ? product.costPrice.toStringAsFixed(0) : '');
     final pos = Provider.of<POSProvider>(context, listen: false);
 
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF1E293B),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
-                ),
-              ),
-              Row(
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          final retail = double.tryParse(retailCtrl.text.trim()) ?? 0.0;
+          final cost = double.tryParse(costCtrl.text.trim()) ?? 0.0;
+          final profit = retail > 0 ? (retail - cost) : 0.0;
+
+          return Container(
+            decoration: const BoxDecoration(
+              color: Color(0xFF1E293B),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryIndigo.withOpacity(0.18),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.price_change_outlined, color: AppColors.primaryIndigo, size: 26),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              product.name,
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'باركود: ${product.barcode}',
+                              style: const TextStyle(color: Colors.white60, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: AppColors.primaryIndigo.withOpacity(0.18),
-                      borderRadius: BorderRadius.circular(12),
+                      color: Colors.amber.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.amber.withOpacity(0.3)),
                     ),
-                    child: const Icon(Icons.price_change_outlined, color: AppColors.primaryIndigo, size: 26),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: const Row(
                       children: [
-                        Text(
-                          product.name,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'باركود: ${product.barcode}',
-                          style: const TextStyle(color: Colors.white60, fontSize: 12),
+                        Icon(Icons.info_outline, color: Colors.amber, size: 18),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'هذه السلعة جديدة أو سعرها 0 دج، حدد سعر البيع والشراء لحفظها وإضافتها للسلة',
+                            style: TextStyle(color: Colors.white, fontSize: 11),
+                          ),
                         ),
                       ],
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.amber.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.amber.withOpacity(0.3)),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.amber, size: 18),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'هذه السلعة جديدة أو سعرها 0 دج، حدد سعر البيع لحفظها وإضافتها للسلة',
-                        style: TextStyle(color: Colors.white, fontSize: 11),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: retailCtrl,
+                    autofocus: true,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                    onChanged: (_) => setModalState(() {}),
+                    decoration: InputDecoration(
+                      labelText: 'سعر بيع التجزئة (دج) *',
+                      labelStyle: const TextStyle(color: AppColors.primaryLight),
+                      suffixText: 'دج',
+                      suffixStyle: const TextStyle(color: AppColors.primaryLight, fontWeight: FontWeight.bold),
+                      filled: true,
+                      fillColor: Colors.black26,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: costCtrl,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: Colors.white),
+                    onChanged: (_) => setModalState(() {}),
+                    decoration: InputDecoration(
+                      labelText: 'سعر الشراء / التكلفة (سعر اللي شراه به) - اختياري',
+                      labelStyle: const TextStyle(color: Colors.white60),
+                      hintText: 'سعر جملة الشراء من المورّد',
+                      hintStyle: const TextStyle(color: Colors.white30),
+                      suffixText: 'دج',
+                      filled: true,
+                      fillColor: Colors.black26,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  if (retail > 0) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: profit >= 0 ? AppColors.accentDark.withOpacity(0.25) : Colors.red.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: profit >= 0 ? AppColors.accent : Colors.redAccent),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(profit >= 0 ? Icons.trending_up : Icons.warning_amber_rounded,
+                              color: profit >= 0 ? AppColors.accent : Colors.redAccent, size: 18),
+                          const SizedBox(width: 8),
+                          Text(
+                            profit >= 0
+                                ? 'هامش الربح المتوقع: +${profit.toStringAsFixed(0)} دج بالقطعة'
+                                : 'تنبيه: سعر البيع أقل من التكلفة (${profit.toStringAsFixed(0)} دج)',
+                            style: TextStyle(
+                              color: profit >= 0 ? Colors.white : Colors.redAccent,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: retailCtrl,
-                autofocus: true,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                decoration: InputDecoration(
-                  labelText: 'سعر بيع التجزئة (دج) *',
-                  labelStyle: const TextStyle(color: AppColors.primaryLight),
-                  suffixText: 'دج',
-                  suffixStyle: const TextStyle(color: AppColors.primaryLight, fontWeight: FontWeight.bold),
-                  filled: true,
-                  fillColor: Colors.black26,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: wholesaleCtrl,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: 'سعر بيع الجملة (دج) (اختياري)',
-                  labelStyle: const TextStyle(color: Colors.white60),
-                  suffixText: 'دج',
-                  filled: true,
-                  fillColor: Colors.black26,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white70,
-                        side: const BorderSide(color: Colors.white24),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white70,
+                            side: const BorderSide(color: Colors.white24),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: () => Navigator.of(ctx).pop(),
+                          child: const Text('إلغاء'),
+                        ),
                       ),
-                      onPressed: () => Navigator.of(ctx).pop(),
-                      child: const Text('إلغاء'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primaryIndigo,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primaryIndigo,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: () async {
+                            final retailVal = double.tryParse(retailCtrl.text.trim()) ?? 0.0;
+                            if (retailVal <= 0) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('⚠️ يرجى إدخال سعر بيع صحيح أكبر من 0 دج'),
+                                  backgroundColor: AppColors.danger,
+                                ),
+                              );
+                              return;
+                            }
+
+                            final costVal = double.tryParse(costCtrl.text.trim()) ?? 0.0;
+                            final updatedProduct = product.copyWith(
+                              retailPrice: retailVal,
+                              costPrice: costVal,
+                              wholesalePrice: retailVal,
+                            );
+
+                            final nav = Navigator.of(ctx);
+                            await pos.saveProductAndAddToCart(product: updatedProduct);
+
+                            if (mounted) {
+                              setState(() {
+                                if (costVal > 0) {
+                                  _recentScanBanner = '${updatedProduct.name} • بيع: ${retailVal.round()} دج (شراء: ${costVal.round()} دج)';
+                                } else {
+                                  _recentScanBanner = '${updatedProduct.name} • بيع: ${retailVal.round()} دج';
+                                }
+                              });
+                              nav.pop();
+                            }
+                          },
+                          icon: const Icon(Icons.check, size: 20),
+                          label: const Text('حفظ وإضافة للسلة ➔', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        ),
                       ),
-                      onPressed: () async {
-                        final retail = double.tryParse(retailCtrl.text.trim()) ?? 0.0;
-                        if (retail <= 0) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('⚠️ يرجى إدخال سعر بيع صحيح أكبر من 0 دج'),
-                              backgroundColor: AppColors.danger,
-                            ),
-                          );
-                          return;
-                        }
-
-                        final wholesale = double.tryParse(wholesaleCtrl.text.trim()) ?? retail;
-                        final updatedProduct = product.copyWith(
-                          retailPrice: retail,
-                          wholesalePrice: wholesale,
-                        );
-
-                        final nav = Navigator.of(ctx);
-                        await pos.saveProductAndAddToCart(product: updatedProduct);
-
-                        if (mounted) {
-                          setState(() {
-                            _recentScanBanner = '${updatedProduct.name} • ${updatedProduct.retailPrice.round()} دج';
-                          });
-                          nav.pop();
-                        }
-                      },
-                      icon: const Icon(Icons.check, size: 20),
-                      label: const Text('حفظ وإضافة للسلة ➔', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                    ),
+                    ],
                   ),
                 ],
               ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -809,32 +876,42 @@ class _POSScreenState extends State<POSScreen> with WidgetsBindingObserver {
           children: [
             // 1. Live Camera Preview
             if (_posCameraController != null && _hasCameraPermission)
-              MobileScanner(
-                controller: _posCameraController!,
-                onDetect: _onPosBarcodeDetected,
-                errorBuilder: (context, error, child) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.camera_alt_outlined, color: Colors.white54, size: 36),
-                          const SizedBox(height: 8),
-                          Text(
-                            _cameraErrorMessage ?? 'تعذر تشغيل الكاميرا',
-                            style: const TextStyle(color: Colors.white70, fontSize: 12),
-                            textAlign: TextAlign.center,
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final scanRect = Rect.fromCenter(
+                    center: Offset(constraints.maxWidth / 2, constraints.maxHeight / 2),
+                    width: 230,
+                    height: 110,
+                  );
+                  return MobileScanner(
+                    controller: _posCameraController!,
+                    scanWindow: scanRect,
+                    onDetect: _onPosBarcodeDetected,
+                    errorBuilder: (context, error, child) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.camera_alt_outlined, color: Colors.white54, size: 36),
+                              const SizedBox(height: 8),
+                              Text(
+                                _cameraErrorMessage ?? 'تعذر تشغيل الكاميرا',
+                                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 8),
+                              TextButton.icon(
+                                onPressed: _startCameraSafely,
+                                icon: const Icon(Icons.refresh, size: 16),
+                                label: const Text('إعادة المحاولة'),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 8),
-                          TextButton.icon(
-                            onPressed: _startCameraSafely,
-                            icon: const Icon(Icons.refresh, size: 16),
-                            label: const Text('إعادة المحاولة'),
-                          ),
-                        ],
-                      ),
-                    ),
+                        ),
+                      );
+                    },
                   );
                 },
               )
@@ -903,10 +980,34 @@ class _POSScreenState extends State<POSScreen> with WidgetsBindingObserver {
                     ),
                   ),
 
-                  // Actions: Torch, Switch camera, Minimize
+                  // Actions: Zoom, Torch, Switch camera, Minimize
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      _buildCameraMiniBtn(
+                        child: Text(
+                          _posZoomScale == 0.0 ? '1x' : (_posZoomScale == 0.2 ? '1.5x' : '2x'),
+                          style: TextStyle(
+                            color: _posZoomScale > 0.0 ? AppColors.accent : Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        color: _posZoomScale > 0.0 ? AppColors.accent : Colors.white,
+                        tooltip: 'تقريب الكاميرا',
+                        onTap: () {
+                          double nextZoom;
+                          if (_posZoomScale == 0.0) {
+                            nextZoom = 0.2;
+                          } else if (_posZoomScale == 0.2) {
+                            nextZoom = 0.4;
+                          } else {
+                            nextZoom = 0.0;
+                          }
+                          _setPosZoom(nextZoom);
+                        },
+                      ),
+                      const SizedBox(width: 6),
                       _buildCameraMiniBtn(
                         icon: _isTorchOn ? Icons.flash_on : Icons.flash_off,
                         color: _isTorchOn ? Colors.amber : Colors.white,
@@ -1001,7 +1102,8 @@ class _POSScreenState extends State<POSScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildCameraMiniBtn({
-    required IconData icon,
+    IconData? icon,
+    Widget? child,
     required Color color,
     required VoidCallback onTap,
     String? tooltip,
@@ -1015,7 +1117,7 @@ class _POSScreenState extends State<POSScreen> with WidgetsBindingObserver {
           color: Colors.black.withOpacity(0.65),
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, color: color, size: 16),
+        child: child ?? Icon(icon, color: color, size: 16),
       ),
     );
   }

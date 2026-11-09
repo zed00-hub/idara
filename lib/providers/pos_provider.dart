@@ -110,7 +110,7 @@ class POSProvider extends ChangeNotifier {
     // Debounce barcode scan (prevent firing 30 times a second for the same item in front of camera)
     if (_recentlyScannedBarcodes.containsKey(barcode)) {
       final lastScanned = _recentlyScannedBarcodes[barcode]!;
-      if (now - lastScanned < (_isMultiScan ? 1200 : 1800)) {
+      if (now - lastScanned < (_isMultiScan ? 800 : 1000)) {
         return null;
       }
     }
@@ -127,20 +127,24 @@ class POSProvider extends ChangeNotifier {
     Product product;
     if (maps.isNotEmpty) {
       product = Product.fromMap(maps.first);
+      // Only add to cart if product has a valid price
+      if (product.retailPrice > 0) {
+        addToCart(product);
+        AudioService.playScanBeep();
+      }
+      return product;
     } else {
-      // Product not found in catalog, create placeholder so cashier can price it
+      // Product not found in catalog, return placeholder for pricing without dirtying the cart
       product = Product(
         barcode: barcode,
         name: 'منتج غير مسجل ($barcode)',
+        costPrice: 0.0,
         retailPrice: 0.0,
         wholesalePrice: 0.0,
         isCustom: true,
       );
+      return product;
     }
-
-    addToCart(product);
-    AudioService.playScanBeep();
-    return product;
   }
 
   void addToCart(Product product, {double qty = 1.0}) {

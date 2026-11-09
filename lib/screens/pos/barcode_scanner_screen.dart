@@ -74,16 +74,34 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
   // Barcode debounce map to avoid scanning same barcode 30 times a second
   final Map<String, int> _recentScans = {};
   List<Barcode> _lastDetectedBarcodes = [];
+  double _zoomScale = 0.0;
 
   MobileScannerController _createController() {
     return MobileScannerController(
       autoStart: false,
-      detectionSpeed: DetectionSpeed.noDuplicates,
+      detectionSpeed: DetectionSpeed.normal,
+      detectionTimeoutMs: 1000,
       facing: CameraFacing.back,
       torchEnabled: false,
       returnImage: false,
+      formats: const [
+        BarcodeFormat.ean13,
+        BarcodeFormat.ean8,
+        BarcodeFormat.upcA,
+        BarcodeFormat.upcE,
+        BarcodeFormat.code128,
+        BarcodeFormat.code39,
+        BarcodeFormat.code93,
+        BarcodeFormat.itf,
+        BarcodeFormat.qrCode,
+      ],
       useNewCameraSelector: true,
     );
+  }
+
+  Future<void> _setZoom(double zoom) async {
+    setState(() => _zoomScale = zoom);
+    await _controller.setZoomScale(zoom);
   }
 
   @override
@@ -236,11 +254,15 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         AudioService.playScanBeep();
         if (mounted) {
           setState(() {
-            _lastScannedBanner = '${product.name} • ${product.retailPrice.round()} دج';
+            if (product.costPrice > 0) {
+              _lastScannedBanner = '${product.name} • بيع: ${product.retailPrice.round()} دج (شراء: ${product.costPrice.round()} دج)';
+            } else {
+              _lastScannedBanner = '${product.name} • بيع: ${product.retailPrice.round()} دج';
+            }
           });
         }
       } else {
-        // Product exists in 42k catalog, but retail price is 0 DZD: prompt to set price
+        // Product exists in catalog, but retail price is 0 DZD: prompt to set price
         await _showSetPriceDialog(product);
       }
     } else {
@@ -311,179 +333,224 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
   /// BottomSheet to set price when product exists but has 0 DZD price
   Future<void> _showSetPriceDialog(Product product) async {
     _isHandlingDialog = true;
-    final retailCtrl = TextEditingController();
-    final wholesaleCtrl = TextEditingController();
+    final retailCtrl = TextEditingController(text: product.retailPrice > 0 ? product.retailPrice.toStringAsFixed(0) : '');
+    final costCtrl = TextEditingController(text: product.costPrice > 0 ? product.costPrice.toStringAsFixed(0) : '');
     final pos = Provider.of<POSProvider>(context, listen: false);
 
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF1E293B),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
-                ),
-              ),
-              Row(
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          final retail = double.tryParse(retailCtrl.text.trim()) ?? 0.0;
+          final cost = double.tryParse(costCtrl.text.trim()) ?? 0.0;
+          final profit = retail > 0 ? (retail - cost) : 0.0;
+
+          return Container(
+            decoration: const BoxDecoration(
+              color: Color(0xFF1E293B),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppColors.retailColor.withOpacity(0.18),
-                      borderRadius: BorderRadius.circular(12),
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
                     ),
-                    child: const Icon(Icons.price_change_outlined, color: AppColors.retailColor, size: 26),
                   ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppColors.retailColor.withOpacity(0.18),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.price_change_outlined, color: AppColors.retailColor, size: 26),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('تحديد سعر البيع والشراء', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+                            Text('السلعة موجودة في الكتالوج ولكن سعرها غير محدد', style: TextStyle(color: Colors.white60, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.06),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: Row(
                       children: [
-                        Text('تحديد سعر البيع للسلعة', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
-                        Text('السلعة موجودة في الكتالوج ولكن سعرها 0 دج', style: TextStyle(color: Colors.white60, fontSize: 12)),
+                        const Icon(Icons.inventory_2_outlined, size: 20, color: AppColors.accent),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                product.name,
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'الباركود: ${product.barcode}',
+                                style: const TextStyle(color: Colors.white54, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.06),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.white12),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.inventory_2_outlined, size: 20, color: AppColors.accent),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: retailCtrl,
+                    autofocus: true,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    onChanged: (_) => setModalState(() {}),
+                    decoration: InputDecoration(
+                      labelText: 'سعر البيع للتجزئة (دج) *',
+                      labelStyle: const TextStyle(color: Colors.white70),
+                      prefixIcon: const Icon(Icons.payments, color: AppColors.retailColor),
+                      hintText: 'مثال: 150',
+                      hintStyle: const TextStyle(color: Colors.white30),
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(0.08),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: costCtrl,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: Colors.white, fontSize: 15),
+                    onChanged: (_) => setModalState(() {}),
+                    decoration: InputDecoration(
+                      labelText: 'سعر الشراء / التكلفة (سعر اللي شراه به) - اختياري',
+                      labelStyle: const TextStyle(color: Colors.white70),
+                      prefixIcon: const Icon(Icons.shopping_bag_outlined, color: AppColors.accent),
+                      hintText: 'سعر جملة الشراء من المورّد',
+                      hintStyle: const TextStyle(color: Colors.white30),
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(0.08),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                    ),
+                  ),
+                  if (retail > 0) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: profit >= 0 ? AppColors.accentDark.withOpacity(0.25) : Colors.red.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: profit >= 0 ? AppColors.accent : Colors.redAccent),
+                      ),
+                      child: Row(
                         children: [
+                          Icon(profit >= 0 ? Icons.trending_up : Icons.warning_amber_rounded,
+                              color: profit >= 0 ? AppColors.accent : Colors.redAccent, size: 18),
+                          const SizedBox(width: 8),
                           Text(
-                            product.name,
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'الباركود: ${product.barcode}',
-                            style: const TextStyle(color: Colors.white54, fontSize: 12),
+                            profit >= 0
+                                ? 'هامش الربح المتوقع: +${profit.toStringAsFixed(0)} دج بالقطعة'
+                                : 'تنبيه: سعر البيع أقل من التكلفة (${profit.toStringAsFixed(0)} دج)',
+                            style: TextStyle(
+                              color: profit >= 0 ? Colors.white : Colors.redAccent,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ],
                       ),
                     ),
                   ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: retailCtrl,
-                autofocus: true,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                decoration: InputDecoration(
-                  labelText: 'سعر البيع للتجزئة (دج) *',
-                  labelStyle: const TextStyle(color: Colors.white70),
-                  prefixIcon: const Icon(Icons.payments, color: AppColors.retailColor),
-                  hintText: 'مثال: 150',
-                  hintStyle: const TextStyle(color: Colors.white30),
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.08),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: wholesaleCtrl,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.white, fontSize: 15),
-                decoration: InputDecoration(
-                  labelText: 'سعر الجملة (دج) - اختياري',
-                  labelStyle: const TextStyle(color: Colors.white70),
-                  prefixIcon: const Icon(Icons.storefront, color: AppColors.wholesaleColor),
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.08),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white70,
-                        side: const BorderSide(color: Colors.white24),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white70,
+                            side: const BorderSide(color: Colors.white24),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: () => Navigator.of(ctx).pop(),
+                          child: const Text('تخطي'),
+                        ),
                       ),
-                      onPressed: () => Navigator.of(ctx).pop(),
-                      child: const Text('تخطي'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primaryIndigo,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primaryIndigo,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: () async {
+                            final retailVal = double.tryParse(retailCtrl.text.trim()) ?? 0.0;
+                            if (retailVal <= 0) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('⚠️ يرجى إدخال سعر بيع صحيح أكبر من 0 دج'),
+                                  backgroundColor: AppColors.danger,
+                                ),
+                              );
+                              return;
+                            }
+
+                            final costVal = double.tryParse(costCtrl.text.trim()) ?? 0.0;
+                            final updatedProduct = product.copyWith(
+                              retailPrice: retailVal,
+                              costPrice: costVal,
+                              wholesalePrice: retailVal,
+                            );
+
+                            final nav = Navigator.of(ctx);
+                            await pos.saveProductAndAddToCart(product: updatedProduct);
+
+                            if (mounted) {
+                              setState(() {
+                                if (costVal > 0) {
+                                  _lastScannedBanner = '${updatedProduct.name} • بيع: ${retailVal.round()} دج (شراء: ${costVal.round()} دج)';
+                                } else {
+                                  _lastScannedBanner = '${updatedProduct.name} • بيع: ${retailVal.round()} دج';
+                                }
+                              });
+                              nav.pop();
+                            }
+                          },
+                          icon: const Icon(Icons.check, size: 20),
+                          label: const Text('حفظ وإضافة للسلة ➔', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        ),
                       ),
-                      onPressed: () async {
-                        final retail = double.tryParse(retailCtrl.text.trim()) ?? 0.0;
-                        if (retail <= 0) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('⚠️ يرجى إدخال سعر بيع صحيح أكبر من 0 دج'),
-                              backgroundColor: AppColors.danger,
-                            ),
-                          );
-                          return;
-                        }
-
-                        final wholesale = double.tryParse(wholesaleCtrl.text.trim()) ?? retail;
-                        final updatedProduct = product.copyWith(
-                          retailPrice: retail,
-                          wholesalePrice: wholesale,
-                        );
-
-                        final nav = Navigator.of(ctx);
-                        await pos.saveProductAndAddToCart(product: updatedProduct);
-
-                        if (mounted) {
-                          setState(() {
-                            _lastScannedBanner = '${updatedProduct.name} • ${updatedProduct.retailPrice.round()} دج';
-                          });
-                          nav.pop();
-                        }
-                      },
-                      icon: const Icon(Icons.check, size: 20),
-                      label: const Text('حفظ وإضافة للسلة ➔', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                    ),
+                    ],
                   ),
                 ],
               ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
 
@@ -502,168 +569,210 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF1E293B),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
-                ),
-              ),
-              Row(
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          final retail = double.tryParse(retailCtrl.text.trim()) ?? 0.0;
+          final cost = double.tryParse(costCtrl.text.trim()) ?? 0.0;
+          final profit = retail > 0 ? (retail - cost) : 0.0;
+
+          return Container(
+            decoration: const BoxDecoration(
+              color: Color(0xFF1E293B),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppColors.accent.withOpacity(0.18),
-                      borderRadius: BorderRadius.circular(12),
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
                     ),
-                    child: const Icon(Icons.add_shopping_cart, color: AppColors.accent, size: 26),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('سلعة جديدة غير مسجلة', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
-                        Text('الباركود الممسوح: $barcode', style: const TextStyle(color: Colors.white60, fontSize: 12)),
-                      ],
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppColors.accent.withOpacity(0.18),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.add_shopping_cart, color: AppColors.accent, size: 26),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('سلعة جديدة غير مسجلة', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+                            Text('الباركود الممسوح: $barcode', style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  TextField(
+                    controller: nameCtrl,
+                    autofocus: true,
+                    style: const TextStyle(color: Colors.white, fontSize: 15),
+                    decoration: InputDecoration(
+                      labelText: 'اسم السلعة / المنتج *',
+                      labelStyle: const TextStyle(color: Colors.white70),
+                      prefixIcon: const Icon(Icons.shopping_bag_outlined, color: AppColors.accent),
+                      hintText: 'مثال: بسكويت بيمبو شيكولا',
+                      hintStyle: const TextStyle(color: Colors.white30),
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(0.08),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
                     ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: retailCtrl,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    onChanged: (_) => setModalState(() {}),
+                    decoration: InputDecoration(
+                      labelText: 'سعر البيع للتجزئة (دج) *',
+                      labelStyle: const TextStyle(color: Colors.white70),
+                      prefixIcon: const Icon(Icons.payments, color: AppColors.retailColor),
+                      hintText: 'مثال: 120',
+                      hintStyle: const TextStyle(color: Colors.white30),
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(0.08),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: costCtrl,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: Colors.white, fontSize: 15),
+                    onChanged: (_) => setModalState(() {}),
+                    decoration: InputDecoration(
+                      labelText: 'سعر الشراء / التكلفة (سعر اللي شراه به) - اختياري',
+                      labelStyle: const TextStyle(color: Colors.white70),
+                      prefixIcon: const Icon(Icons.shopping_bag_outlined, color: AppColors.accent),
+                      hintText: 'سعر جملة الشراء من المورّد',
+                      hintStyle: const TextStyle(color: Colors.white30),
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(0.08),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                    ),
+                  ),
+                  if (retail > 0) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: profit >= 0 ? AppColors.accentDark.withOpacity(0.25) : Colors.red.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: profit >= 0 ? AppColors.accent : Colors.redAccent),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(profit >= 0 ? Icons.trending_up : Icons.warning_amber_rounded,
+                              color: profit >= 0 ? AppColors.accent : Colors.redAccent, size: 18),
+                          const SizedBox(width: 8),
+                          Text(
+                            profit >= 0
+                                ? 'هامش الربح المتوقع: +${profit.toStringAsFixed(0)} دج بالقطعة'
+                                : 'تنبيه: سعر البيع أقل من التكلفة (${profit.toStringAsFixed(0)} دج)',
+                            style: TextStyle(
+                              color: profit >= 0 ? Colors.white : Colors.redAccent,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white70,
+                            side: const BorderSide(color: Colors.white24),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: () => Navigator.of(ctx).pop(),
+                          child: const Text('إلغاء'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.accent,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: () async {
+                            final name = nameCtrl.text.trim();
+                            final retailVal = double.tryParse(retailCtrl.text.trim()) ?? 0.0;
+                            final costVal = double.tryParse(costCtrl.text.trim()) ?? 0.0;
+
+                            if (name.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('⚠️ يرجى إدخال اسم السلعة')),
+                              );
+                              return;
+                            }
+
+                            if (retailVal <= 0) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('⚠️ يرجى إدخال سعر بيع صحيح أكبر من 0 دج')),
+                              );
+                              return;
+                            }
+
+                            final newProduct = Product(
+                              barcode: barcode,
+                              name: name,
+                              costPrice: costVal,
+                              retailPrice: retailVal,
+                              wholesalePrice: retailVal,
+                              quantity: 100.0,
+                              isCustom: true,
+                            );
+
+                            final nav = Navigator.of(ctx);
+                            await pos.saveProductAndAddToCart(product: newProduct);
+
+                            if (mounted) {
+                              setState(() {
+                                if (costVal > 0) {
+                                  _lastScannedBanner = '$name • بيع: ${retailVal.round()} دج (شراء: ${costVal.round()} دج)';
+                                } else {
+                                  _lastScannedBanner = '$name • بيع: ${retailVal.round()} دج';
+                                }
+                              });
+                              nav.pop();
+                            }
+                          },
+                          icon: const Icon(Icons.check, size: 20),
+                          label: const Text('حفظ وإضافة للسلة ➔', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
-              TextField(
-                controller: nameCtrl,
-                autofocus: true,
-                style: const TextStyle(color: Colors.white, fontSize: 15),
-                decoration: InputDecoration(
-                  labelText: 'اسم السلعة / المنتج *',
-                  labelStyle: const TextStyle(color: Colors.white70),
-                  prefixIcon: const Icon(Icons.shopping_bag_outlined, color: AppColors.accent),
-                  hintText: 'مثال: بسكويت بيمبو شيكولا',
-                  hintStyle: const TextStyle(color: Colors.white30),
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.08),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: retailCtrl,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                decoration: InputDecoration(
-                  labelText: 'سعر البيع (دج) *',
-                  labelStyle: const TextStyle(color: Colors.white70),
-                  prefixIcon: const Icon(Icons.payments, color: AppColors.retailColor),
-                  hintText: 'مثال: 120',
-                  hintStyle: const TextStyle(color: Colors.white30),
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.08),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: costCtrl,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.white, fontSize: 15),
-                decoration: InputDecoration(
-                  labelText: 'سعر الشراء / التكلفة (دج) - اختياري',
-                  labelStyle: const TextStyle(color: Colors.white70),
-                  prefixIcon: const Icon(Icons.money_off, color: Colors.white54),
-                  hintText: 'لحساب الأرباح بدقة',
-                  hintStyle: const TextStyle(color: Colors.white30),
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.08),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white70,
-                        side: const BorderSide(color: Colors.white24),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      ),
-                      onPressed: () => Navigator.of(ctx).pop(),
-                      child: const Text('إلغاء'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.accent,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      ),
-                      onPressed: () async {
-                        final name = nameCtrl.text.trim();
-                        final retail = double.tryParse(retailCtrl.text.trim()) ?? 0.0;
-                        final cost = double.tryParse(costCtrl.text.trim()) ?? 0.0;
-
-                        if (name.isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('⚠️ يرجى إدخال اسم السلعة')),
-                          );
-                          return;
-                        }
-
-                        if (retail <= 0) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('⚠️ يرجى إدخال سعر بيع صحيح أكبر من 0 دج')),
-                          );
-                          return;
-                        }
-
-                        final newProduct = Product(
-                          barcode: barcode,
-                          name: name,
-                          costPrice: cost,
-                          retailPrice: retail,
-                          wholesalePrice: retail,
-                          quantity: 100.0,
-                          isCustom: true,
-                        );
-
-                        final nav = Navigator.of(ctx);
-                        await pos.saveProductAndAddToCart(product: newProduct);
-
-                        if (mounted) {
-                          setState(() {
-                            _lastScannedBanner = '$name • ${retail.round()} دج';
-                          });
-                          nav.pop();
-                        }
-                      },
-                      icon: const Icon(Icons.check, size: 20),
-                      label: const Text('حفظ وإضافة للسلة ➔', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
 
@@ -706,10 +815,39 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     }
   }
 
+  Widget _buildZoomChip({required String label, required double value}) {
+    final isSelected = (_zoomScale - value).abs() < 0.05;
+    return InkWell(
+      onTap: () => _setZoom(value),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.accent : Colors.white12,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.white70,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final pos = Provider.of<POSProvider>(context);
     final cart = pos.cart;
+    final mediaSize = MediaQuery.of(context).size;
+    final Rect scanRect = Rect.fromCenter(
+      center: Offset(mediaSize.width / 2, mediaSize.height / 2),
+      width: 290,
+      height: 180,
+    );
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -719,6 +857,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
           // 1. Fullscreen Live Camera View
           MobileScanner(
             controller: _controller,
+            scanWindow: _isMultiBarcodeMode ? null : scanRect,
             onDetect: _onDetect,
             errorBuilder: (context, error, child) {
               return Center(
@@ -961,10 +1100,37 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
             ),
           ),
 
+          // 4.5. Zoom Selector Pills (1.0x, 1.5x, 2.0x)
+          Positioned(
+            top: (mediaSize.height / 2) + 105,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.65),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildZoomChip(label: '1.0x', value: 0.0),
+                    const SizedBox(width: 4),
+                    _buildZoomChip(label: '1.5x', value: 0.2),
+                    const SizedBox(width: 4),
+                    _buildZoomChip(label: '2.0x', value: 0.4),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
           // 5. Floating Flash Confirmation Banner
           if (_lastScannedBanner != null)
             Positioned(
-              top: MediaQuery.of(context).size.height * 0.52,
+              top: (mediaSize.height / 2) + 155,
               left: 20,
               right: 20,
               child: Center(
